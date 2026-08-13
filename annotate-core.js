@@ -25,6 +25,10 @@ window.GXRAnnotate = (function () {
     dim: "#9A9AA5"
   };
   var COLORS = ["#4A36EC", "#FF4D4F", "#FAAD14", "#52C41A", "#13C2C2", "#FFFFFF", "#1C1D20"];
+  // Kineviz Desktop's Electron shell silently drops <a download> clicks from the
+  // Grove iframe (no will-download handler), so exports there go to an inline
+  // result panel + clipboard instead. Verified live on Desktop 0.17.1.
+  var IS_DESKTOP = /kineviz-desktop/i.test(navigator.userAgent);
   var WIDTHS = [2, 4, 8];
   var FONTS = [16, 24, 36];
   var FONT_FAMILY = "'Open Sans', 'Helvetica Neue', Arial, sans-serif";
@@ -94,6 +98,27 @@ window.GXRAnnotate = (function () {
     }, root);
     var statusLeft = el("span", { text: "Pick a tool, then draw on the image." }, statusBar);
     var statusRight = el("span", { text: "" }, statusBar);
+
+    // inline export-result panel (primary export surface inside Kineviz Desktop)
+    var resultPanel = el("div", {
+      style: "display:none;padding:10px;background:" + BRAND.panel + ";border-top:1px solid " + BRAND.line + ";"
+    }, root);
+    function showResult(dataUrl, note) {
+      resultPanel.innerHTML = "";
+      var head = el("div", { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:12px;color:" + BRAND.dim + ";" }, resultPanel);
+      el("span", { text: note }, head);
+      var close = el("button", {
+        text: "✕ Close",
+        style: "background:transparent;border:1px solid " + BRAND.line + ";color:" + BRAND.text + ";border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;"
+      }, head);
+      close.addEventListener("click", function () { resultPanel.style.display = "none"; });
+      el("img", {
+        src: dataUrl,
+        style: "display:block;max-width:100%;height:auto;border:1px solid " + BRAND.line + ";border-radius:6px;"
+      }, resultPanel);
+      resultPanel.style.display = "block";
+      resultPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
 
     function say(msg) { statusLeft.textContent = msg; onStatus(msg); }
 
@@ -600,18 +625,29 @@ window.GXRAnnotate = (function () {
         URL.revokeObjectURL(url);
         canvas.toBlob(function (blob) {
           if (!blob) { say("PNG export failed (canvas tainted?)."); return; }
-          if (toClipboard) {
+          var copy = function (okMsg, failMsg) {
             if (navigator.clipboard && window.ClipboardItem) {
-              navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(function () {
-                say("PNG copied to clipboard — paste straight into your deck.");
+              return navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(function () {
+                say(okMsg);
               }, function (err) {
-                say("Clipboard blocked (" + err + ") — downloading instead.");
-                download(blob, fileBase + "-" + stamp() + ".png");
+                say(failMsg + " (" + err.message + ")");
               });
-            } else {
-              say("Clipboard API unavailable — downloading instead.");
-              download(blob, fileBase + "-" + stamp() + ".png");
             }
+            say(failMsg + " (clipboard API unavailable)");
+          };
+          if (toClipboard) {
+            copy("PNG copied to clipboard — paste straight into your deck.",
+              IS_DESKTOP ? "Clipboard blocked — use the preview below" : "Clipboard blocked — downloading instead");
+            if (!navigator.clipboard || !window.ClipboardItem) {
+              if (IS_DESKTOP) showResult(canvas.toDataURL("image/png"), "Exported PNG (" + state.natural.w + "x" + state.natural.h + ")");
+              else download(blob, fileBase + "-" + stamp() + ".png");
+            }
+          } else if (IS_DESKTOP) {
+            // downloads are dropped by the Desktop shell: show the result inline + copy
+            showResult(canvas.toDataURL("image/png"),
+              "Exported PNG (" + state.natural.w + "x" + state.natural.h + ") — also copied to your clipboard; paste it anywhere.");
+            copy("PNG ready below and copied to clipboard.",
+              "PNG ready below — clipboard copy blocked, click Copy PNG to retry");
           } else {
             download(blob, fileBase + "-" + stamp() + ".png");
             say("PNG downloaded.");
@@ -623,6 +659,10 @@ window.GXRAnnotate = (function () {
     }
     function exportSVG() {
       var svgStr = svgToString(buildExportSVG(true));
+      if (IS_DESKTOP) {
+        say("SVG export needs a browser (Desktop drops downloads) — open this grovebook on GraphXR web, or use Export PNG / Copy PNG here.");
+        return;
+      }
       download(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }), fileBase + "-" + stamp() + ".svg");
       say("SVG downloaded (image embedded — re-editable in Figma/Illustrator).");
     }
