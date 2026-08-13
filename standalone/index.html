@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GXR Annotate — standalone test harness</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 24px; background: #131316; color: #EAEAF0;
+    font-family: 'Open Sans', 'Helvetica Neue', Arial, sans-serif;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h1 span { color: #4A36EC; }
+  p.sub { color: #9A9AA5; margin: 0 0 16px; font-size: 13px; }
+  .row { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+  button, label.filebtn {
+    background: #4A36EC; color: #fff; border: none; border-radius: 6px;
+    padding: 8px 14px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  button.ghost { background: transparent; border: 1px solid #3A3B40; }
+  input[type=file] { display: none; }
+  #editor { max-width: 1400px; }
+</style>
+</head>
+<body>
+<h1>GXR <span>Annotate</span> — standalone test harness</h1>
+<p class="sub">Editor core test page. In production this runs inside a Kineviz Desktop grovebook fed by gxr.screenshot().</p>
+<div class="row">
+  <button id="sample">Load sample "canvas"</button>
+  <label class="filebtn">Load image file<input type="file" id="file" accept="image/*"></label>
+  <button class="ghost" id="clear">Clear annotations</button>
+</div>
+<div id="editor"></div>
+
+<script src="../annotate-core.js"></script>
+<script>
+  var editor = GXRAnnotate.mount(document.getElementById('editor'), { fileBaseName: 'gxr-annotate-test' });
+
+  // Synthetic "graph canvas" so the harness needs no GraphXR: dark background,
+  // colored nodes, edges, labels — close enough to exercise every tool.
+  function sampleDataUrl() {
+    var c = document.createElement('canvas');
+    c.width = 1600; c.height = 900;
+    var x = c.getContext('2d');
+    x.fillStyle = '#1C1D20'; x.fillRect(0, 0, 1600, 900);
+    var rng = (function (s) { return function () { s = (s * 16807) % 2147483647; return s / 2147483647; }; })(42);
+    var nodes = [];
+    var palette = ['#4A36EC', '#13C2C2', '#FAAD14', '#FF4D4F', '#52C41A'];
+    for (var i = 0; i < 60; i++) {
+      nodes.push({ x: 100 + rng() * 1400, y: 80 + rng() * 740, r: 8 + rng() * 16, c: palette[Math.floor(rng() * palette.length)] });
+    }
+    x.strokeStyle = 'rgba(255,255,255,0.15)'; x.lineWidth = 1.5;
+    for (var e = 0; e < 90; e++) {
+      var a = nodes[Math.floor(rng() * nodes.length)], b = nodes[Math.floor(rng() * nodes.length)];
+      x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke();
+    }
+    nodes.forEach(function (n, i) {
+      x.beginPath(); x.arc(n.x, n.y, n.r, 0, 7); x.fillStyle = n.c; x.fill();
+      x.fillStyle = 'rgba(255,255,255,0.7)'; x.font = '12px sans-serif';
+      x.fillText('node_' + i, n.x + n.r + 3, n.y + 4);
+    });
+    x.fillStyle = 'rgba(255,255,255,0.5)'; x.font = '16px sans-serif';
+    x.fillText('synthetic graph canvas — GXR Annotate test', 24, 878);
+    return c.toDataURL('image/png');
+  }
+
+  document.getElementById('sample').addEventListener('click', function () { editor.setImage(sampleDataUrl()); });
+  document.getElementById('file').addEventListener('change', function (ev) {
+    var f = ev.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () { editor.setImage(r.result); };
+    r.readAsDataURL(f);
+  });
+  document.getElementById('clear').addEventListener('click', function () { editor.clear(); });
+
+  editor.setImage(sampleDataUrl());
+</script>
+</body>
+</html>
