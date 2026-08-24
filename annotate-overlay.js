@@ -25,9 +25,23 @@
   var w = window;
   if (w.__GXR_ANNOTATE__ && w.__GXR_ANNOTATE__.destroy) { try { w.__GXR_ANNOTATE__.destroy(); } catch (e) {} }
 
-  var BRAND = { purple: "#4A36EC", dark: "#1C1D20", panel: "#26272B", line: "#3A3B40", text: "#EAEAF0", dim: "#9A9AA5", red: "#FF4D4F" };
-  var COLORS = ["#FF4D4F", "#4A36EC", "#FAAD14", "#52C41A", "#13C2C2", "#FFFFFF"];
-  var FONT = "'Open Sans', 'Helvetica Neue', Arial, sans-serif";
+  // GraphXR dark-theme tokens (web/react_views/configure/DarkThemeConfig.js + Common.css)
+  var BRAND = {
+    purple: "#65B7F3",          // colorPrimary (kept key name for compatibility)
+    primaryHover: "#7DCBFF",
+    dark: "#141414",            // colorBgBase
+    panel: "#303030",           // colorBgContainer
+    elevated: "#434343",        // colorBgElevated
+    input: "#262626",           // Input colorBgContainer
+    line: "#434343",            // colorBorder
+    text: "#ACACAC",            // colorText
+    bright: "#E8E8E8",
+    dim: "#7D7D7D",             // colorTextSecondary
+    primaryTint: "rgba(101, 183, 243, 0.15)",
+    red: "#E84749"
+  };
+  var COLORS = ["#E84749", "#65B7F3", "#D89614", "#49AA19", "#13A8A8", "#FFFFFF"];
+  var FONT = "'Lato', 'Helvetica', sans-serif";
   var SVGNS = "http://www.w3.org/2000/svg";
   var SIDECAR = "/annotations.sidecar.json";
   var SIDECAR_BAK = "/annotations.sidecar.bak";
@@ -35,8 +49,8 @@
   // ---------- feature detection (fail visibly, never silently) ----------
   function installBanner(msg) {
     var b = document.createElement("div");
-    b.style.cssText = "position:fixed;top:12px;right:12px;z-index:99999;background:#3a1214;color:#ff7b72;" +
-      "border:1px solid rgba(248,81,73,.6);border-radius:8px;padding:10px 14px;font-family:" + FONT + ";" +
+    b.style.cssText = "position:fixed;top:12px;right:12px;z-index:99999;background:#2a1215;color:#E84749;" +
+      "border:1px solid rgba(232,71,73,.55);border-radius:6px;padding:10px 14px;font-family:" + FONT + ";" +
       "font-size:12.5px;max-width:360px;box-shadow:0 4px 18px rgba(0,0,0,.5);";
     b.textContent = "GXR Annotate: " + msg;
     var x = document.createElement("span");
@@ -205,14 +219,47 @@
   svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;";
   layer.appendChild(svg);
 
+  // toolbar sits BELOW the app's floating header (which owns the top ~56px, centered)
+  // and is draggable by its grip; position persists per browser.
+  var savedBarPos = null;
+  try { savedBarPos = JSON.parse(w.localStorage.getItem("gxr-annotate.barPos") || "null"); } catch (e) {}
   var bar = el("div",
-    "position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:50;display:flex;gap:4px;align-items:center;" +
-    "background:" + BRAND.panel + ";border:1px solid " + BRAND.line + ";border-radius:999px;padding:6px 10px;" +
-    "font-family:" + FONT + ";box-shadow:0 4px 18px rgba(0,0,0,0.45);pointer-events:auto;user-select:none;flex-wrap:wrap;max-width:92%;", host);
+    "position:absolute;z-index:50;display:flex;gap:4px;align-items:center;" +
+    "background:" + BRAND.dark + ";border:1px solid " + BRAND.line + ";border-radius:50px;padding:5px 10px;" +
+    "font-family:" + FONT + ";box-shadow:0 4px 18px rgba(0,0,0,0.55);pointer-events:auto;user-select:none;flex-wrap:wrap;max-width:92%;", host);
+  if (savedBarPos && isFinite(savedBarPos.x) && isFinite(savedBarPos.y)) {
+    bar.style.left = savedBarPos.x + "px"; bar.style.top = savedBarPos.y + "px";
+  } else {
+    bar.style.left = "50%"; bar.style.transform = "translateX(-50%)"; bar.style.top = "64px";
+  }
+  var grip = el("span", "cursor:grab;color:" + BRAND.dim + ";padding:0 4px;font-size:13px;letter-spacing:-1px;", bar);
+  grip.textContent = "⠿";
+  grip.title = "Drag to move the toolbar";
+  (function () {
+    var dragging = null;
+    grip.addEventListener("pointerdown", function (e) {
+      e.stopPropagation();
+      var br = bar.getBoundingClientRect(), hr = host.getBoundingClientRect();
+      dragging = { dx: e.clientX - br.left, dy: e.clientY - br.top, hr: hr };
+      grip.setPointerCapture(e.pointerId);
+    });
+    grip.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var x = Math.max(4, Math.min(dragging.hr.width - 60, e.clientX - dragging.hr.left - dragging.dx));
+      var y = Math.max(4, Math.min(dragging.hr.height - 40, e.clientY - dragging.hr.top - dragging.dy));
+      bar.style.transform = "none";
+      bar.style.left = x + "px"; bar.style.top = y + "px";
+    });
+    grip.addEventListener("pointerup", function () {
+      if (!dragging) return;
+      dragging = null;
+      try { w.localStorage.setItem("gxr-annotate.barPos", JSON.stringify({ x: parseFloat(bar.style.left), y: parseFloat(bar.style.top) })); } catch (e) {}
+    });
+  })();
   var statusTip = el("div",
-    "position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:50;display:none;" +
-    "background:rgba(28,29,32,0.92);color:" + BRAND.dim + ";border:1px solid " + BRAND.line + ";border-radius:8px;" +
-    "padding:4px 12px;font-family:" + FONT + ";font-size:11.5px;pointer-events:none;white-space:nowrap;", host);
+    "position:absolute;top:112px;left:50%;transform:translateX(-50%);z-index:50;display:none;" +
+    "background:" + BRAND.input + ";color:" + BRAND.text + ";border:1px solid " + BRAND.line + ";border-radius:6px;" +
+    "padding:4px 12px;font-family:" + FONT + ";font-size:12px;pointer-events:none;white-space:nowrap;", host);
   function tip(msg, ms) {
     statusTip.textContent = msg || "";
     statusTip.style.display = msg ? "block" : "none";
@@ -221,15 +268,19 @@
 
   function mkBtn(label, title, cb) {
     var b = el("button",
-      "background:transparent;border:1px solid " + BRAND.line + ";color:" + BRAND.text + ";border-radius:999px;" +
-      "padding:4px 9px;font-size:12px;cursor:pointer;font-family:inherit;line-height:1.2;", bar);
+      "background:transparent;border:1px solid " + BRAND.line + ";color:" + BRAND.text + ";border-radius:50px;" +
+      "padding:4px 9px;font-size:12px;cursor:pointer;font-family:inherit;line-height:1.2;transition:border-color .15s,color .15s;", bar);
     b.textContent = label; b.title = title;
+    b.addEventListener("mouseenter", function () { if (b.__on !== true) { b.style.borderColor = BRAND.primaryHover; b.style.color = BRAND.primaryHover; } });
+    b.addEventListener("mouseleave", function () { if (b.__on !== true) { b.style.borderColor = BRAND.line; b.style.color = BRAND.text; } });
     b.addEventListener("click", function (e) { e.stopPropagation(); cb(b); });
     return b;
   }
   function setOn(b, on) {
-    b.style.background = on ? BRAND.purple : "transparent";
+    b.__on = on;
+    b.style.background = on ? BRAND.primaryTint : "transparent";
     b.style.borderColor = on ? BRAND.purple : BRAND.line;
+    b.style.color = on ? BRAND.purple : BRAND.text;
   }
 
   var toolBtns = {};
@@ -260,7 +311,7 @@
   mkBtn("↩", "Undo (Cmd/Ctrl+Z in draw mode)", undo);
   mkBtn("⌫", "Delete selected (Del)", deleteSelected);
   var exportBtn = mkBtn("📤", "Export annotated PNG (clipboard + preview)", doExport);
-  exportBtn.style.background = BRAND.purple; exportBtn.style.borderColor = BRAND.purple;
+  exportBtn.style.background = BRAND.purple; exportBtn.style.borderColor = BRAND.purple; exportBtn.style.color = "#141414"; exportBtn.style.fontWeight = "700";
   mkBtn("—", "Remove the layer from this session (annotations stay saved)", function () { api.destroy(); });
   var viewBadge = el("span", "font-size:11px;color:" + BRAND.dim + ";padding:0 4px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", bar);
 
@@ -485,7 +536,7 @@
   function openTextInput(s, existing, commit) {
     closeTextInput(false);
     var ta = el("textarea",
-      "position:absolute;z-index:60;min-width:180px;min-height:34px;resize:both;background:rgba(28,29,32,0.94);color:#fff;" +
+      "position:absolute;z-index:60;min-width:180px;min-height:34px;resize:both;background:rgba(38,38,38,0.96);color:#fff;" +
       "border:2px solid " + BRAND.purple + ";border-radius:6px;font-family:" + FONT + ";font-size:14px;padding:4px 6px;outline:none;pointer-events:auto;", layer);
     ta.style.left = Math.min(s.x, rendRect().width - 200) + "px";
     ta.style.top = s.y + "px";
@@ -596,7 +647,7 @@
       } else if (a.type === "cluster") {
         if (a.startScreen) { // being drawn: show marquee
           var ms = a.startScreen, mc = a.curScreen;
-          svgEl("rect", { x: Math.min(ms.x, mc.x), y: Math.min(ms.y, mc.y), width: Math.abs(mc.x - ms.x), height: Math.abs(mc.y - ms.y), fill: "rgba(74,54,236,0.08)", stroke: a.color, "stroke-dasharray": "5 4", "stroke-width": 1.5 }, g);
+          svgEl("rect", { x: Math.min(ms.x, mc.x), y: Math.min(ms.y, mc.y), width: Math.abs(mc.x - ms.x), height: Math.abs(mc.y - ms.y), fill: "rgba(101,183,243,0.08)", stroke: a.color, "stroke-dasharray": "5 4", "stroke-width": 1.5 }, g);
           return;
         }
         var pts = (a.nodeIds || []).map(nodePos).filter(Boolean).map(worldToScreen).filter(function (s) { return !s.behind; });
@@ -643,10 +694,10 @@
         st.textContent = String(a.n);
       } else if (a.type === "title") {
         var rw = rendRect().width;
-        var tg = svgEl("text", { x: rw / 2, y: 92, fill: "#FFF", "font-size": 20, "font-family": FONT, "font-weight": "700", "text-anchor": "middle" }, g);
+        var tg = svgEl("text", { x: rw / 2, y: 148, fill: "#FFF", "font-size": 20, "font-family": FONT, "font-weight": "700", "text-anchor": "middle" }, g);
         tg.textContent = a.text;
         var bb2 = tg.getBBox();
-        var bgr = svgEl("rect", { x: bb2.x - 14, y: bb2.y - 7, width: bb2.width + 28, height: bb2.height + 14, rx: 8, fill: "rgba(28,29,32,0.85)", stroke: a.color, "stroke-width": 1.5 }, g);
+        var bgr = svgEl("rect", { x: bb2.x - 14, y: bb2.y - 7, width: bb2.width + 28, height: bb2.height + 14, rx: 8, fill: "rgba(20,20,20,0.88)", stroke: a.color, "stroke-width": 1.5 }, g);
         g.insertBefore(bgr, tg);
       }
       if (sel && a.type !== "arrow" && a.type !== "ellipse") {
@@ -658,7 +709,7 @@
     });
   }
   function drawLabel(g, x, y, text, color, size, pill) {
-    var t = svgEl("text", { x: x, y: y, fill: pill ? "#FFF" : color, "font-size": size, "font-family": FONT, "font-weight": "600", "paint-order": "stroke", stroke: pill ? "none" : "rgba(28,29,32,0.8)", "stroke-width": pill ? 0 : Math.max(2, size / 8) }, g);
+    var t = svgEl("text", { x: x, y: y, fill: pill ? "#FFF" : color, "font-size": size, "font-family": FONT, "font-weight": "600", "paint-order": "stroke", stroke: pill ? "none" : "rgba(20,20,20,0.8)", "stroke-width": pill ? 0 : Math.max(2, size / 8) }, g);
     String(text).split("\n").forEach(function (line, i) {
       svgEl("tspan", { x: x, dy: i === 0 ? 0 : size * 1.25 }, t).textContent = line;
     });

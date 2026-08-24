@@ -1,18 +1,18 @@
 <!--{"pinCode":false,"dname":"showcase-hero","codeMode":"js","hide":true}-->
 ```js
 {
-  return html`<div style="background:linear-gradient(135deg,#0d1117 0%,#161b22 60%,#1f2933 100%);color:#e6edf3;border:1px solid rgba(48,54,61,.8);border-radius:12px;padding:24px 28px;margin-bottom:14px;font-family:-apple-system,system-ui,sans-serif;">
-    <div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#58a6ff;font-weight:600;">Kineviz · Canvas Annotation · Showcase</div>
-    <h1 style="margin:6px 0 8px;font-size:26px;color:#fff;">GXR Annotate <span style="color:#7b6cff;">v0.5</span> — live demo</h1>
-    <p style="margin:0 0 8px;max-width:740px;color:#c9d1d9;font-size:14px;line-height:1.6;">
-      A transparent annotation layer over the live canvas. Marks are saved <strong>per view</strong> and come in three kinds:
-      <strong>attached to nodes</strong> (callouts &amp; cluster circles that follow the data through layout moves),
-      <strong>floating in graph space</strong> (glued through pan/zoom), and <strong>fixed on screen</strong> (the view title).
+  return html`<div style="background:#141414;color:#ACACAC;border:1px solid #303030;border-radius:6px;padding:22px 26px;margin-bottom:12px;font-family:'Lato','Helvetica',sans-serif;">
+    <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#65B7F3;font-weight:700;">Kineviz · Canvas Annotation · Showcase</div>
+    <h1 style="margin:6px 0 8px;font-size:24px;color:#E8E8E8;font-weight:700;">GXR Annotate <span style="color:#65B7F3;">v0.5</span> — live demo</h1>
+    <p style="margin:0 0 8px;max-width:740px;font-size:13.5px;line-height:1.6;">
+      A transparent annotation layer over the live canvas. Marks are saved <strong style="color:#E8E8E8;">per view</strong> and come in three kinds:
+      <strong style="color:#E8E8E8;">attached to nodes</strong> (callouts &amp; cluster circles that follow the data through layout moves),
+      <strong style="color:#E8E8E8;">floating in graph space</strong> (glued through pan/zoom), and <strong style="color:#E8E8E8;">fixed on screen</strong> (the view title).
       Saving is merge-safe — two people can annotate the same project without erasing each other.
     </p>
-    <p style="margin:0;color:#8b949e;font-size:12.5px;">
-      Run the three cells below in order: ① install the layer → ② seed the demo graph → ③ build sample annotations.
-      Then play with the floating toolbar over the canvas.
+    <p style="margin:0;color:#7D7D7D;font-size:12px;">
+      Run ① then ② then ③ below. The floating toolbar appears over the canvas (drag it by the ⠿ grip).
+      ③ is safe to run repeatedly — it reuses the "Showcase — annotated" view and seeds the graph if the canvas is empty.
     </p>
   </div>`;
 }
@@ -25,9 +25,23 @@
   var w = window;
   if (w.__GXR_ANNOTATE__ && w.__GXR_ANNOTATE__.destroy) { try { w.__GXR_ANNOTATE__.destroy(); } catch (e) {} }
 
-  var BRAND = { purple: "#4A36EC", dark: "#1C1D20", panel: "#26272B", line: "#3A3B40", text: "#EAEAF0", dim: "#9A9AA5", red: "#FF4D4F" };
-  var COLORS = ["#FF4D4F", "#4A36EC", "#FAAD14", "#52C41A", "#13C2C2", "#FFFFFF"];
-  var FONT = "'Open Sans', 'Helvetica Neue', Arial, sans-serif";
+  // GraphXR dark-theme tokens (web/react_views/configure/DarkThemeConfig.js + Common.css)
+  var BRAND = {
+    purple: "#65B7F3",          // colorPrimary (kept key name for compatibility)
+    primaryHover: "#7DCBFF",
+    dark: "#141414",            // colorBgBase
+    panel: "#303030",           // colorBgContainer
+    elevated: "#434343",        // colorBgElevated
+    input: "#262626",           // Input colorBgContainer
+    line: "#434343",            // colorBorder
+    text: "#ACACAC",            // colorText
+    bright: "#E8E8E8",
+    dim: "#7D7D7D",             // colorTextSecondary
+    primaryTint: "rgba(101, 183, 243, 0.15)",
+    red: "#E84749"
+  };
+  var COLORS = ["#E84749", "#65B7F3", "#D89614", "#49AA19", "#13A8A8", "#FFFFFF"];
+  var FONT = "'Lato', 'Helvetica', sans-serif";
   var SVGNS = "http://www.w3.org/2000/svg";
   var SIDECAR = "/annotations.sidecar.json";
   var SIDECAR_BAK = "/annotations.sidecar.bak";
@@ -35,8 +49,8 @@
   // ---------- feature detection (fail visibly, never silently) ----------
   function installBanner(msg) {
     var b = document.createElement("div");
-    b.style.cssText = "position:fixed;top:12px;right:12px;z-index:99999;background:#3a1214;color:#ff7b72;" +
-      "border:1px solid rgba(248,81,73,.6);border-radius:8px;padding:10px 14px;font-family:" + FONT + ";" +
+    b.style.cssText = "position:fixed;top:12px;right:12px;z-index:99999;background:#2a1215;color:#E84749;" +
+      "border:1px solid rgba(232,71,73,.55);border-radius:6px;padding:10px 14px;font-family:" + FONT + ";" +
       "font-size:12.5px;max-width:360px;box-shadow:0 4px 18px rgba(0,0,0,.5);";
     b.textContent = "GXR Annotate: " + msg;
     var x = document.createElement("span");
@@ -205,14 +219,47 @@
   svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;";
   layer.appendChild(svg);
 
+  // toolbar sits BELOW the app's floating header (which owns the top ~56px, centered)
+  // and is draggable by its grip; position persists per browser.
+  var savedBarPos = null;
+  try { savedBarPos = JSON.parse(w.localStorage.getItem("gxr-annotate.barPos") || "null"); } catch (e) {}
   var bar = el("div",
-    "position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:50;display:flex;gap:4px;align-items:center;" +
-    "background:" + BRAND.panel + ";border:1px solid " + BRAND.line + ";border-radius:999px;padding:6px 10px;" +
-    "font-family:" + FONT + ";box-shadow:0 4px 18px rgba(0,0,0,0.45);pointer-events:auto;user-select:none;flex-wrap:wrap;max-width:92%;", host);
+    "position:absolute;z-index:50;display:flex;gap:4px;align-items:center;" +
+    "background:" + BRAND.dark + ";border:1px solid " + BRAND.line + ";border-radius:50px;padding:5px 10px;" +
+    "font-family:" + FONT + ";box-shadow:0 4px 18px rgba(0,0,0,0.55);pointer-events:auto;user-select:none;flex-wrap:wrap;max-width:92%;", host);
+  if (savedBarPos && isFinite(savedBarPos.x) && isFinite(savedBarPos.y)) {
+    bar.style.left = savedBarPos.x + "px"; bar.style.top = savedBarPos.y + "px";
+  } else {
+    bar.style.left = "50%"; bar.style.transform = "translateX(-50%)"; bar.style.top = "64px";
+  }
+  var grip = el("span", "cursor:grab;color:" + BRAND.dim + ";padding:0 4px;font-size:13px;letter-spacing:-1px;", bar);
+  grip.textContent = "⠿";
+  grip.title = "Drag to move the toolbar";
+  (function () {
+    var dragging = null;
+    grip.addEventListener("pointerdown", function (e) {
+      e.stopPropagation();
+      var br = bar.getBoundingClientRect(), hr = host.getBoundingClientRect();
+      dragging = { dx: e.clientX - br.left, dy: e.clientY - br.top, hr: hr };
+      grip.setPointerCapture(e.pointerId);
+    });
+    grip.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var x = Math.max(4, Math.min(dragging.hr.width - 60, e.clientX - dragging.hr.left - dragging.dx));
+      var y = Math.max(4, Math.min(dragging.hr.height - 40, e.clientY - dragging.hr.top - dragging.dy));
+      bar.style.transform = "none";
+      bar.style.left = x + "px"; bar.style.top = y + "px";
+    });
+    grip.addEventListener("pointerup", function () {
+      if (!dragging) return;
+      dragging = null;
+      try { w.localStorage.setItem("gxr-annotate.barPos", JSON.stringify({ x: parseFloat(bar.style.left), y: parseFloat(bar.style.top) })); } catch (e) {}
+    });
+  })();
   var statusTip = el("div",
-    "position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:50;display:none;" +
-    "background:rgba(28,29,32,0.92);color:" + BRAND.dim + ";border:1px solid " + BRAND.line + ";border-radius:8px;" +
-    "padding:4px 12px;font-family:" + FONT + ";font-size:11.5px;pointer-events:none;white-space:nowrap;", host);
+    "position:absolute;top:112px;left:50%;transform:translateX(-50%);z-index:50;display:none;" +
+    "background:" + BRAND.input + ";color:" + BRAND.text + ";border:1px solid " + BRAND.line + ";border-radius:6px;" +
+    "padding:4px 12px;font-family:" + FONT + ";font-size:12px;pointer-events:none;white-space:nowrap;", host);
   function tip(msg, ms) {
     statusTip.textContent = msg || "";
     statusTip.style.display = msg ? "block" : "none";
@@ -221,15 +268,19 @@
 
   function mkBtn(label, title, cb) {
     var b = el("button",
-      "background:transparent;border:1px solid " + BRAND.line + ";color:" + BRAND.text + ";border-radius:999px;" +
-      "padding:4px 9px;font-size:12px;cursor:pointer;font-family:inherit;line-height:1.2;", bar);
+      "background:transparent;border:1px solid " + BRAND.line + ";color:" + BRAND.text + ";border-radius:50px;" +
+      "padding:4px 9px;font-size:12px;cursor:pointer;font-family:inherit;line-height:1.2;transition:border-color .15s,color .15s;", bar);
     b.textContent = label; b.title = title;
+    b.addEventListener("mouseenter", function () { if (b.__on !== true) { b.style.borderColor = BRAND.primaryHover; b.style.color = BRAND.primaryHover; } });
+    b.addEventListener("mouseleave", function () { if (b.__on !== true) { b.style.borderColor = BRAND.line; b.style.color = BRAND.text; } });
     b.addEventListener("click", function (e) { e.stopPropagation(); cb(b); });
     return b;
   }
   function setOn(b, on) {
-    b.style.background = on ? BRAND.purple : "transparent";
+    b.__on = on;
+    b.style.background = on ? BRAND.primaryTint : "transparent";
     b.style.borderColor = on ? BRAND.purple : BRAND.line;
+    b.style.color = on ? BRAND.purple : BRAND.text;
   }
 
   var toolBtns = {};
@@ -260,7 +311,7 @@
   mkBtn("↩", "Undo (Cmd/Ctrl+Z in draw mode)", undo);
   mkBtn("⌫", "Delete selected (Del)", deleteSelected);
   var exportBtn = mkBtn("📤", "Export annotated PNG (clipboard + preview)", doExport);
-  exportBtn.style.background = BRAND.purple; exportBtn.style.borderColor = BRAND.purple;
+  exportBtn.style.background = BRAND.purple; exportBtn.style.borderColor = BRAND.purple; exportBtn.style.color = "#141414"; exportBtn.style.fontWeight = "700";
   mkBtn("—", "Remove the layer from this session (annotations stay saved)", function () { api.destroy(); });
   var viewBadge = el("span", "font-size:11px;color:" + BRAND.dim + ";padding:0 4px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", bar);
 
@@ -485,7 +536,7 @@
   function openTextInput(s, existing, commit) {
     closeTextInput(false);
     var ta = el("textarea",
-      "position:absolute;z-index:60;min-width:180px;min-height:34px;resize:both;background:rgba(28,29,32,0.94);color:#fff;" +
+      "position:absolute;z-index:60;min-width:180px;min-height:34px;resize:both;background:rgba(38,38,38,0.96);color:#fff;" +
       "border:2px solid " + BRAND.purple + ";border-radius:6px;font-family:" + FONT + ";font-size:14px;padding:4px 6px;outline:none;pointer-events:auto;", layer);
     ta.style.left = Math.min(s.x, rendRect().width - 200) + "px";
     ta.style.top = s.y + "px";
@@ -596,7 +647,7 @@
       } else if (a.type === "cluster") {
         if (a.startScreen) { // being drawn: show marquee
           var ms = a.startScreen, mc = a.curScreen;
-          svgEl("rect", { x: Math.min(ms.x, mc.x), y: Math.min(ms.y, mc.y), width: Math.abs(mc.x - ms.x), height: Math.abs(mc.y - ms.y), fill: "rgba(74,54,236,0.08)", stroke: a.color, "stroke-dasharray": "5 4", "stroke-width": 1.5 }, g);
+          svgEl("rect", { x: Math.min(ms.x, mc.x), y: Math.min(ms.y, mc.y), width: Math.abs(mc.x - ms.x), height: Math.abs(mc.y - ms.y), fill: "rgba(101,183,243,0.08)", stroke: a.color, "stroke-dasharray": "5 4", "stroke-width": 1.5 }, g);
           return;
         }
         var pts = (a.nodeIds || []).map(nodePos).filter(Boolean).map(worldToScreen).filter(function (s) { return !s.behind; });
@@ -643,10 +694,10 @@
         st.textContent = String(a.n);
       } else if (a.type === "title") {
         var rw = rendRect().width;
-        var tg = svgEl("text", { x: rw / 2, y: 92, fill: "#FFF", "font-size": 20, "font-family": FONT, "font-weight": "700", "text-anchor": "middle" }, g);
+        var tg = svgEl("text", { x: rw / 2, y: 148, fill: "#FFF", "font-size": 20, "font-family": FONT, "font-weight": "700", "text-anchor": "middle" }, g);
         tg.textContent = a.text;
         var bb2 = tg.getBBox();
-        var bgr = svgEl("rect", { x: bb2.x - 14, y: bb2.y - 7, width: bb2.width + 28, height: bb2.height + 14, rx: 8, fill: "rgba(28,29,32,0.85)", stroke: a.color, "stroke-width": 1.5 }, g);
+        var bgr = svgEl("rect", { x: bb2.x - 14, y: bb2.y - 7, width: bb2.width + 28, height: bb2.height + 14, rx: 8, fill: "rgba(20,20,20,0.88)", stroke: a.color, "stroke-width": 1.5 }, g);
         g.insertBefore(bgr, tg);
       }
       if (sel && a.type !== "arrow" && a.type !== "ellipse") {
@@ -658,7 +709,7 @@
     });
   }
   function drawLabel(g, x, y, text, color, size, pill) {
-    var t = svgEl("text", { x: x, y: y, fill: pill ? "#FFF" : color, "font-size": size, "font-family": FONT, "font-weight": "600", "paint-order": "stroke", stroke: pill ? "none" : "rgba(28,29,32,0.8)", "stroke-width": pill ? 0 : Math.max(2, size / 8) }, g);
+    var t = svgEl("text", { x: x, y: y, fill: pill ? "#FFF" : color, "font-size": size, "font-family": FONT, "font-weight": "600", "paint-order": "stroke", stroke: pill ? "none" : "rgba(20,20,20,0.8)", "stroke-width": pill ? 0 : Math.max(2, size / 8) }, g);
     String(text).split("\n").forEach(function (line, i) {
       svgEl("tspan", { x: x, dy: i === 0 ? 0 : size * 1.25 }, t).textContent = line;
     });
@@ -946,8 +997,8 @@
   doc.body.appendChild(s);
   s.remove();
   const ok = !!window.parent.__GXR_ANNOTATE__;
-  return html`<div style="font-family:-apple-system,system-ui,sans-serif;font-size:13px;padding:10px 14px;border-radius:8px;border:1px solid ${ok ? "rgba(63,185,80,.5)" : "rgba(248,81,73,.5)"};color:${ok ? "#3fb950" : "#ff7b72"};background:#161b22;">
-    ${ok ? "✅ ① Annotation layer installed — the floating toolbar is over the canvas. You can close this panel any time." : "❌ Layer failed to install — is a project canvas open? Check the console."}
+  return html`<div style="font-family:'Lato','Helvetica',sans-serif;font-size:13px;padding:10px 14px;border-radius:6px;border:1px solid ${ok ? "rgba(73,170,25,.5)" : "rgba(232,71,73,.5)"};color:${ok ? "#49AA19" : "#E84749"};background:#1d1d1d;">
+    ${ok ? "✅ ① Annotation layer installed — the floating toolbar is over the canvas (drag it by ⠿). You can close this panel any time." : "❌ Layer failed to install — is a project canvas open? Check the console."}
   </div>`;
 }
 ```
@@ -955,13 +1006,13 @@
 <!--{"pinCode":false,"dname":"showcase-seed","codeMode":"js","hide":false}-->
 ```js
 {
-  return await Button("🌱 ② Seed demo graph (3 communities, 54 nodes)", async () => {
+  async function seedShowcaseGraph() {
     const rng = (s => () => (s = (s * 16807) % 2147483647) / 2147483647)(1337);
     const nodes = [], edges = [];
     const comms = [
-      { tag: "a", cat: "Suppliers",  n: 16 },
-      { tag: "b", cat: "Shell Cos",  n: 20 },
-      { tag: "c", cat: "Retailers",  n: 15 }
+      { tag: "a", cat: "Suppliers", n: 16 },
+      { tag: "b", cat: "Shell Cos", n: 20 },
+      { tag: "c", cat: "Retailers", n: 15 }
     ];
     comms.forEach(c => {
       nodes.push({ id: "hub-" + c.tag, category: c.cat, properties: { name: c.cat + " HUB", role: "hub" } });
@@ -983,7 +1034,11 @@
     await gxr.forceLayout();
     await gxr.flyOut();
     gxr.dispatchGraphDataUpdate();
-    console.log("[showcase] seeded", nodes.length, "nodes /", edges.length, "edges");
+    return nodes.length;
+  }
+  return await Button("🌱 ② Seed demo graph (3 communities, 54 nodes)", async () => {
+    const n = await seedShowcaseGraph();
+    console.log("[showcase] seeded", n, "nodes");
   });
 }
 ```
@@ -991,34 +1046,69 @@
 <!--{"pinCode":false,"dname":"showcase-demo-annotations","codeMode":"js","hide":false}-->
 ```js
 {
-  return await Button("🖍 ③ Build sample annotations + save the view", async () => {
+  async function seedShowcaseGraph() {
+    const rng = (s => () => (s = (s * 16807) % 2147483647) / 2147483647)(1337);
+    const nodes = [], edges = [];
+    const comms = [
+      { tag: "a", cat: "Suppliers", n: 16 },
+      { tag: "b", cat: "Shell Cos", n: 20 },
+      { tag: "c", cat: "Retailers", n: 15 }
+    ];
+    comms.forEach(c => {
+      nodes.push({ id: "hub-" + c.tag, category: c.cat, properties: { name: c.cat + " HUB", role: "hub" } });
+      for (let i = 0; i < c.n; i++) {
+        const id = c.tag + i;
+        nodes.push({ id, category: c.cat, properties: { name: c.cat + "_" + i, score: Math.round(rng() * 100) } });
+        edges.push({ sourceId: id, targetId: "hub-" + c.tag, relationship: "MEMBER" });
+        if (i > 1 && rng() < 0.5) edges.push({ sourceId: id, targetId: c.tag + Math.floor(rng() * i), relationship: "LINKED" });
+      }
+    });
+    edges.push({ sourceId: "hub-a", targetId: "hub-b", relationship: "FUNNELS" });
+    edges.push({ sourceId: "hub-b", targetId: "hub-c", relationship: "FUNNELS" });
+    for (let x = 0; x < 6; x++) {
+      const c1 = comms[Math.floor(rng() * 3)], c2 = comms[Math.floor(rng() * 3)];
+      edges.push({ sourceId: c1.tag + Math.floor(rng() * c1.n), targetId: c2.tag + Math.floor(rng() * c2.n), relationship: "LINKED" });
+    }
+    await gxr.addNodes(nodes);
+    await gxr.addEdges(edges);
+    await gxr.forceLayout();
+    await gxr.flyOut();
+    gxr.dispatchGraphDataUpdate();
+    return nodes.length;
+  }
+  return await Button("🖍 ③ Build sample annotations (reuses the demo view)", async () => {
     const A = window.parent.__GXR_ANNOTATE__;
     if (!A) { console.error("layer not installed — run cell ① first"); return; }
-    // a real saved view so per-view persistence is exercised
-    const v = await gxr.views.saveAs({ name: "Showcase — annotated" });
-    await new Promise(r => setTimeout(r, 1500));
+    if (!gxr.getNode("hub-b")) {
+      console.log("[showcase] canvas empty — seeding first");
+      await seedShowcaseGraph();
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    const existing = (await gxr.views.list()).find(v => v.name === "Showcase — annotated");
+    if (existing) {
+      await gxr.views.load({ id: existing._id || existing.id });
+      await new Promise(r => setTimeout(r, 4000));
+    } else {
+      await gxr.views.saveAs({ name: "Showcase — annotated" });
+      await new Promise(r => setTimeout(r, 1500));
+    }
     await A.refreshKey(true);
     A.clearView();
-    // screen-fixed title
-    A.setTitle("Shell companies funnel both supply chains", "#4A36EC");
-    // node-anchored callout on the middle hub
-    A.addAnnotation({ type: "callout", nodeId: "hub-b", text: "20 shells, one operator\n(all registered same week)", color: "#FF4D4F", off: { x: 90, y: -70 } });
-    // cluster circle around the shell community
+    A.setTitle("Shell companies funnel both supply chains", "#65B7F3");
+    A.addAnnotation({ type: "callout", nodeId: "hub-b", text: "20 shells, one operator\n(all registered same week)", color: "#E84749", off: { x: 90, y: -70 } });
     const shellIds = []; for (let i = 0; i < 20; i++) shellIds.push("b" + i);
     shellIds.push("hub-b");
-    A.addAnnotation({ type: "cluster", nodeIds: shellIds, color: "#FAAD14", width: 3, pad: 30 });
-    // free arrow in graph space pointing at the a→b funnel
-    const hb = gxr.getNode("hub-a");
-    if (hb && hb.position) {
-      A.addAnnotation({ type: "arrow", p1: { x: hb.position.x - 0.9, y: hb.position.y - 0.7, z: 0 }, p2: { nodeId: "hub-a" }, color: "#13C2C2", width: 3 });
+    A.addAnnotation({ type: "cluster", nodeIds: shellIds, color: "#D89614", width: 3, pad: 30 });
+    const ha = gxr.getNode("hub-a");
+    if (ha && ha.position) {
+      A.addAnnotation({ type: "arrow", p1: { x: ha.position.x - 0.9, y: ha.position.y - 0.7, z: 0 }, p2: { nodeId: "hub-a" }, color: "#13A8A8", width: 3 });
     }
-    // tour steps on the three hubs
     ["hub-a", "hub-b", "hub-c"].forEach(id => {
       const n = gxr.getNode(id);
-      if (n && n.position) A.addAnnotation({ type: "step", p: { x: n.position.x, y: n.position.y + 0.25, z: 0 }, color: "#FF4D4F" });
+      if (n && n.position) A.addAnnotation({ type: "step", p: { x: n.position.x, y: n.position.y + 0.25, z: 0 }, color: "#E84749" });
     });
     await A.save();
-    console.log("[showcase] sample annotations created + saved for view", v && v.name);
+    console.log("[showcase] annotations ready on view 'Showcase — annotated'");
   });
 }
 ```
@@ -1026,18 +1116,18 @@
 <!--{"pinCode":false,"dname":"showcase-trythis","codeMode":"js","hide":true}-->
 ```js
 {
-  return html`<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px 24px;margin-bottom:14px;color:#c9d1d9;font-family:-apple-system,system-ui,sans-serif;font-size:14px;line-height:1.65;">
-    <div style="font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#58a6ff;font-weight:600;margin-bottom:6px;">Try this</div>
+  return html`<div style="background:#1d1d1d;border:1px solid #303030;border-radius:6px;padding:18px 22px;margin-bottom:12px;color:#ACACAC;font-family:'Lato','Helvetica',sans-serif;font-size:13.5px;line-height:1.65;">
+    <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#65B7F3;font-weight:700;margin-bottom:6px;">Try this</div>
     <ul style="margin:4px 0 10px;padding-left:18px;">
-      <li><strong>Glue</strong> — wheel-zoom and pan: every mark moves with the graph; the title stays put.</li>
-      <li><strong>Living anchors</strong> — run a layout (e.g. force layout) and watch the amber cluster circle follow its nodes, the callout track its hub.</li>
-      <li><strong>Tour</strong> — hit <code>▶</code>: flies to each numbered step, →/← to move, Esc to exit.</li>
-      <li><strong>Edit</strong> — click any mark (draw mode not needed) to select; drag it; drag arrow endpoints; double-click text/callouts to rewrite; Del deletes; colors restyle the selection.</li>
-      <li><strong>Draw</strong> — ✏️ then: 💬 callout on a node · → arrow · ⬭ drag around nodes for a cluster circle · ◯ ellipse · T text · ① steps · 🏷 title.</li>
-      <li><strong>Per view</strong> — switch to another view: clean slate. Come back to "Showcase — annotated": everything returns, re-anchored.</li>
-      <li><strong>Hide</strong> — 👁 toggles the layer without deleting anything. <code>📤</code> exports the composited PNG to your clipboard.</li>
+      <li><strong style="color:#E8E8E8;">Glue</strong> — wheel-zoom and pan: every mark moves with the graph; the title stays put.</li>
+      <li><strong style="color:#E8E8E8;">Living anchors</strong> — run a force layout and watch the amber cluster circle follow its nodes, the callout track its hub.</li>
+      <li><strong style="color:#E8E8E8;">Tour</strong> — hit <code style="color:#65B7F3;">▶</code>: flies to each numbered step, →/← to move, Esc to exit.</li>
+      <li><strong style="color:#E8E8E8;">Edit</strong> — click any mark to select (no draw mode needed); drag it; drag arrow endpoints; double-click text/callouts to rewrite; Del deletes; colors restyle the selection.</li>
+      <li><strong style="color:#E8E8E8;">Draw</strong> — ✏️ then: 💬 callout on a node · → arrow · ⬭ drag around nodes for a cluster circle · ◯ ellipse · T text · ① steps · 🏷 title.</li>
+      <li><strong style="color:#E8E8E8;">Per view</strong> — switch views: clean slate. Return to "Showcase — annotated": everything comes back, re-anchored.</li>
+      <li><strong style="color:#E8E8E8;">Hide</strong> — 👁 toggles the layer without deleting anything. 📤 exports the composited PNG to your clipboard.</li>
     </ul>
-    <div style="color:#8b949e;font-size:12.5px;">Safety under the hood: saving refuses to run until the annotation file has been read successfully (no clobbering), each save merges only this view's changes (teammate-safe), a backup is written before every save, and if a GraphXR update breaks the internals the layer says so instead of failing silently.</div>
+    <div style="color:#7D7D7D;font-size:12px;">Under the hood: saving refuses to run until the annotation file has been read (no clobbering), each save merges only this view's changes (teammate-safe), a backup is written first, and if a GraphXR update breaks the internals the layer says so instead of failing silently.</div>
   </div>`;
 }
 ```
@@ -1045,10 +1135,11 @@
 <!--{"pinCode":false,"dname":"showcase-footer","codeMode":"js","hide":true}-->
 ```js
 {
-  return html`<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px 20px;color:#8b949e;font-family:-apple-system,system-ui,sans-serif;font-size:12.5px;line-height:1.6;">
-    <div style="font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#58a6ff;font-weight:600;margin-bottom:4px;">How this was created</div>
-    Built from the expert-roundtable decisions (2026-08-13): three anchor classes in one layer, per-view persistence, merge-safe saves, tour mode with camera fly.
-    Source: <code>github.com/rockyjonez/graphxr-annotate</code> — annotate-overlay.js v0.5, embedded by build-showcase.js. Uses <code>gxr.files</code> for the project sidecar and the app's own <code>convertCloudPoint</code> projection; the five-function SDK proposal to make those dependencies official is in the roundtable doc.
+  return html`<div style="background:#141414;border:1px solid #303030;border-radius:6px;padding:12px 18px;color:#7D7D7D;font-family:'Lato','Helvetica',sans-serif;font-size:12px;line-height:1.6;">
+    <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#65B7F3;font-weight:700;margin-bottom:4px;">How this was created</div>
+    Built from the expert-roundtable decisions (2026-08-13): three anchor classes in one layer, per-view persistence, merge-safe saves, tour mode.
+    Styled to the GraphXR dark theme (DarkThemeConfig.js tokens). Source: <code>github.com/rockyjonez/graphxr-annotate</code>.
+    Uses <code>gxr.files</code> for the project sidecar and the app's <code>convertCloudPoint</code> projection; the five-function SDK proposal to make those official is in the roundtable doc.
   </div>`;
 }
 ```
