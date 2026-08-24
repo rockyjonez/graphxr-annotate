@@ -945,7 +945,7 @@
 
   // ---------- public api (used by the showcase grovebook) ----------
   var api = {
-    version: "0.5.0",
+    version: "0.5.1",
     state: state,
     addAnnotation: function (a) {
       a.id = state.idSeq++;
