@@ -114,6 +114,7 @@
   var state = {
     mode: false, tool: "callout", color: COLORS[0],
     sizeMul: 1, fontKey: "sans",
+    globalScale: (function () { try { var v = parseFloat(w.localStorage.getItem("gxr-annotate.displayScale")); return (v >= 0.5 && v <= 3) ? v : 1; } catch (e) { return 1; } })(),
     sets: {},            // key -> {savedAt, clientId, anns:[]}
     dirtyKeys: {},       // key -> true (unsaved local changes)
     key: null,
@@ -330,20 +331,28 @@
     b.addEventListener("click", function (e) { e.stopPropagation(); setColor(c); });
     colorBtns.push([b, c]);
   });
-  function applyTextStyle(fn) {
+  function setGlobalScale(mul) {
+    state.globalScale = Math.max(0.5, Math.min(3, state.globalScale * mul));
+    try { w.localStorage.setItem("gxr-annotate.displayScale", String(state.globalScale)); } catch (e) {}
+    renderVersion++;
+    tip("Display scale " + Math.round(state.globalScale * 100) + "% — all marks and tour captions (this machine only; select a mark first to resize just that one).", 3200);
+  }
+  function applyTextStyle(fn, scaleMul) {
     var a = state.selectedId && findAnn(state.selectedId);
     if (a && (a.type === "text" || a.type === "callout" || a.type === "title" || a.type === "step")) {
       pushUndo(); fn(a); markDirty();
+    } else if (scaleMul) {
+      setGlobalScale(scaleMul); // nothing selected: scale the whole display
     } else {
-      fn(state); // set defaults for new marks
-      tip("Text style set for new marks (select an existing text/callout/title first to restyle it).", 2600);
+      fn(state);
+      tip("Font set for new marks (select a mark first to restyle just that one).", 2600);
     }
   }
-  mkBtn("A−", "Smaller text (applies to selected mark, or sets the default)", function () {
-    applyTextStyle(function (t) { t.sizeMul = Math.max(0.5, (t.sizeMul || 1) / 1.25); });
+  mkBtn("A−", "Selected mark: smaller text. Nothing selected: shrink ALL marks (display scale)", function () {
+    applyTextStyle(function (t) { t.sizeMul = Math.max(0.5, (t.sizeMul || 1) / 1.25); }, 1 / 1.25);
   });
-  mkBtn("A+", "Bigger text (applies to selected mark, or sets the default)", function () {
-    applyTextStyle(function (t) { t.sizeMul = Math.min(3.5, (t.sizeMul || 1) * 1.25); });
+  mkBtn("A+", "Selected mark: bigger text. Nothing selected: enlarge ALL marks (display scale)", function () {
+    applyTextStyle(function (t) { t.sizeMul = Math.min(3.5, (t.sizeMul || 1) * 1.25); }, 1.25);
   });
   var fontBtn = mkBtn("Aa", "Cycle font: sans → serif → mono (selected mark, or default)", function () {
     applyTextStyle(function (t) {
@@ -364,7 +373,22 @@
   mkBtn("⌫", "Delete selected (Del)", deleteSelected);
   var exportBtn = mkBtn("📤", "Export annotated PNG (clipboard + preview)", doExport);
   exportBtn.style.background = BRAND.purple; exportBtn.style.borderColor = BRAND.purple; exportBtn.style.color = "#141414"; exportBtn.style.fontWeight = "700";
-  mkBtn("—", "Remove the layer from this session (annotations stay saved)", function () { api.destroy(); });
+  var miniPill = null;
+  mkBtn("—", "Minimize: tuck the toolbar away (marks stay; 👁 hides those). Click the 🖍 pill to bring it back.", function () {
+    bar.style.display = "none";
+    if (tourHud) { tourHud.remove(); tourHud = null; }
+    if (!miniPill) {
+      miniPill = el("button",
+        "position:absolute;bottom:16px;left:16px;z-index:50;background:" + BRAND.dark + ";border:1px solid " + BRAND.line + ";" +
+        "color:" + BRAND.text + ";border-radius:50px;padding:7px 11px;font-size:14px;cursor:pointer;pointer-events:auto;" +
+        "font-family:" + FONT + ";box-shadow:0 4px 14px rgba(0,0,0,.5);", host);
+      miniPill.textContent = "🖍";
+      miniPill.title = "Show the annotation toolbar";
+      miniPill.addEventListener("click", function () { bar.style.display = "flex"; miniPill.style.display = "none"; });
+    }
+    miniPill.style.display = "block";
+    tip("Toolbar minimized — the 🖍 pill (bottom-left) brings it back. 👁 on the toolbar hides the marks themselves.", 3500);
+  });
   var viewBadge = el("span", "font-size:11px;color:" + BRAND.dim + ";padding:2px 8px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:1px solid transparent;border-radius:50px;", bar);
   viewBadge.title = "Click: fly to this view's annotations";
   viewBadge.addEventListener("mouseenter", function () { viewBadge.style.color = BRAND.purple; viewBadge.style.borderColor = BRAND.line; });
@@ -654,8 +678,9 @@
     var r = rendRect();
     var unitPx = 0.5 * r.height / (Math.max(0.01, d) * Math.tan((dr.camera.fov / 2) * Math.PI / 180));
     var sc = dr.cloudScene.scale ? dr.cloudScene.scale.x : 1;
-    return Math.max(12, Math.min(40, unitPx * sc * 0.22));
+    return Math.max(12, Math.min(40, unitPx * sc * 0.22)) * state.globalScale;
   }
+  function gw(wid) { return (wid || 3) * state.globalScale; } // stroke widths follow display scale
   function render() {
     var r = rendRect();
     svg.setAttribute("viewBox", "0 0 " + r.width + " " + r.height);
@@ -684,7 +709,7 @@
           var mk = svgEl("marker", { id: mid, viewBox: "0 0 10 10", refX: "8.5", refY: "5", markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
           svgEl("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: a.color }, mk);
         }
-        svgEl("line", { x1: s1.x, y1: s1.y, x2: s2.x, y2: s2.y, stroke: a.color, "stroke-width": a.width, "stroke-linecap": "round", "marker-end": "url(#" + mid + ")", "stroke-dasharray": orphan ? "5 5" : "none" }, g);
+        svgEl("line", { x1: s1.x, y1: s1.y, x2: s2.x, y2: s2.y, stroke: a.color, "stroke-width": gw(a.width), "stroke-linecap": "round", "marker-end": "url(#" + mid + ")", "stroke-dasharray": orphan ? "5 5" : "none" }, g);
         svgEl("line", { x1: s1.x, y1: s1.y, x2: s2.x, y2: s2.y, stroke: "rgba(0,0,0,0)", "stroke-width": 14 }, g);
         if (sel) {
           [["p1", s1], ["p2", s2]].forEach(function (h) {
@@ -697,7 +722,7 @@
         if (!Q1 || !Q2) return;
         var q1 = worldToScreen(Q1), q2 = worldToScreen(Q2);
         if (q1.behind || q2.behind) return;
-        svgEl("ellipse", { cx: (q1.x + q2.x) / 2, cy: (q1.y + q2.y) / 2, rx: Math.abs(q2.x - q1.x) / 2, ry: Math.abs(q2.y - q1.y) / 2, fill: "none", stroke: a.color, "stroke-width": a.width }, g);
+        svgEl("ellipse", { cx: (q1.x + q2.x) / 2, cy: (q1.y + q2.y) / 2, rx: Math.abs(q2.x - q1.x) / 2, ry: Math.abs(q2.y - q1.y) / 2, fill: "none", stroke: a.color, "stroke-width": gw(a.width) }, g);
         if (sel) {
           var hc = svgEl("circle", { cx: Math.max(q1.x, q2.x), cy: Math.max(q1.y, q2.y), r: 8, fill: "#FFF", stroke: BRAND.purple, "stroke-width": 3, "data-handle": "p2" }, g);
           hc.style.cursor = "grab";
@@ -715,8 +740,8 @@
         cx /= pts.length; cy /= pts.length;
         var rad = 0;
         pts.forEach(function (p) { rad = Math.max(rad, Math.hypot(p.x - cx, p.y - cy)); });
-        rad += a.pad || 26;
-        svgEl("circle", { cx: cx, cy: cy, r: rad, fill: "none", stroke: a.color, "stroke-width": a.width || 3 }, g);
+        rad += (a.pad || 26) * state.globalScale;
+        svgEl("circle", { cx: cx, cy: cy, r: rad, fill: "none", stroke: a.color, "stroke-width": gw(a.width) }, g);
         svgEl("circle", { cx: cx, cy: cy, r: rad, fill: "rgba(0,0,0,0)", stroke: "rgba(0,0,0,0)", "stroke-width": 14 }, g);
       } else if (a.type === "text") {
         var TP = pt(a.p);
@@ -736,7 +761,7 @@
         // leader line from label toward node, stopping short of the node
         var dx = bs.x - lx, dy = bs.y - ly, dl = Math.max(1, Math.hypot(dx, dy));
         var ex = bs.x - dx / dl * 14, ey = bs.y - dy / dl * 14;
-        svgEl("line", { x1: lx, y1: ly + 4, x2: ex, y2: ey, stroke: a.color, "stroke-width": 2, "stroke-dasharray": orphan ? "5 5" : "none" }, g);
+        svgEl("line", { x1: lx, y1: ly + 4, x2: ex, y2: ey, stroke: a.color, "stroke-width": 2 * state.globalScale, "stroke-dasharray": orphan ? "5 5" : "none" }, g);
         svgEl("circle", { cx: ex, cy: ey, r: 3, fill: a.color }, g);
         drawLabel(g, lx, ly, a.text, a.color, Math.max(13, fpx * 0.8) * (a.sizeMul || 1), true, familyFor(a.fontKey || state.fontKey));
       } else if (a.type === "step") {
@@ -752,7 +777,7 @@
         st.textContent = String(a.n);
       } else if (a.type === "title") {
         var rw = rendRect().width;
-        var tg = svgEl("text", { x: rw / 2, y: 148, fill: "#FFF", "font-size": 20 * (a.sizeMul || 1), "font-family": familyFor(a.fontKey || state.fontKey), "font-weight": "700", "text-anchor": "middle" }, g);
+        var tg = svgEl("text", { x: rw / 2, y: 148, fill: "#FFF", "font-size": 20 * (a.sizeMul || 1) * state.globalScale, "font-family": familyFor(a.fontKey || state.fontKey), "font-weight": "700", "text-anchor": "middle" }, g);
         tg.textContent = a.text;
         var bb2 = tg.getBBox();
         var bgr = svgEl("rect", { x: bb2.x - 14, y: bb2.y - 7, width: bb2.width + 28, height: bb2.height + 14, rx: 8, fill: "rgba(20,20,20,0.88)", stroke: a.color, "stroke-width": 1.5 }, g);
@@ -828,10 +853,12 @@
         "color:" + BRAND.text + ";font-size:13px;max-width:520px;text-align:center;pointer-events:none;box-shadow:0 4px 18px rgba(0,0,0,.55);", host);
     }
     tourHud.innerHTML = "";
-    var head = el("div", "color:" + BRAND.purple + ";font-weight:700;font-size:14px;margin-bottom:2px;", tourHud);
+    var gs = state.globalScale;
+    tourHud.style.maxWidth = Math.round(520 * Math.min(gs, 2)) + "px";
+    var head = el("div", "color:" + BRAND.purple + ";font-weight:700;font-size:" + Math.round(14 * gs) + "px;margin-bottom:2px;", tourHud);
     head.textContent = "Tour · step " + (i + 1) + " of " + total;
-    if (label) { var lb = el("div", "color:" + BRAND.bright + ";font-size:14px;margin:3px 0;", tourHud); lb.textContent = label; }
-    var hint = el("div", "color:" + BRAND.dim + ";font-size:11.5px;margin-top:3px;", tourHud);
+    if (label) { var lb = el("div", "color:" + BRAND.bright + ";font-size:" + Math.round(14 * gs) + "px;margin:3px 0;", tourHud); lb.textContent = label; }
+    var hint = el("div", "color:" + BRAND.dim + ";font-size:" + Math.round(11.5 * gs) + "px;margin-top:3px;", tourHud);
     hint.textContent = "▶ or → = next step · ← = back · Esc = end tour";
   }
   function startTour() {
@@ -1040,7 +1067,7 @@
 
   // ---------- public api (used by the showcase grovebook) ----------
   var api = {
-    version: "0.5.4",
+    version: "0.5.5",
     state: state,
     addAnnotation: function (a) {
       a.id = state.idSeq++;
@@ -1071,6 +1098,7 @@
       document.removeEventListener("visibilitychange", onVisChange);
       layer.remove(); bar.remove(); statusTip.remove();
       if (tourHud) tourHud.remove();
+      if (miniPill) miniPill.remove();
       if (exportPanel) exportPanel.remove();
       if (loopBanner) loopBanner.remove();
       delete w.__GXR_ANNOTATE__;

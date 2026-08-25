@@ -155,7 +155,8 @@ cell("showcase-trythis", "true", `{
       <li><strong style="color:#E8E8E8;">Edit</strong> — click any mark to select (no draw mode needed); drag it; drag arrow endpoints; double-click text/callouts to rewrite; Del deletes; colors restyle the selection.</li>
       <li><strong style="color:#E8E8E8;">Draw</strong> — ✏️ then: 💬 callout on a node · → arrow · ⬭ drag around nodes for a cluster circle · ◯ ellipse · T text · ① steps · 🏷 title.</li>
       <li><strong style="color:#E8E8E8;">Per view</strong> — switch views: clean slate. Return to "Showcase — annotated": everything comes back, re-anchored.</li>
-      <li><strong style="color:#E8E8E8;">Hide</strong> — 👁 toggles the layer without deleting anything. 📤 exports the composited PNG to your clipboard.</li>
+      <li><strong style="color:#E8E8E8;">Hide &amp; tidy</strong> — 👁 hides the marks (nothing is deleted); <code style="color:#65B7F3;">—</code> minimizes the toolbar to a 🖍 pill (bottom-left) until you need it. 📤 exports the composited PNG to your clipboard.</li>
+      <li><strong style="color:#E8E8E8;">Can't read it from the back of the room?</strong> — with nothing selected, <code style="color:#65B7F3;">A+</code> enlarges <em>every</em> mark and the tour captions (display-only, per machine). With a mark selected, A−/A+/Aa restyle just that mark.</li>
     </ul>
     <div style="color:#7D7D7D;font-size:12px;">Under the hood: saving refuses to run until the annotation file has been read (no clobbering), each save merges only this view's changes (teammate-safe), a backup is written first, and if a GraphXR update breaks the internals the layer says so instead of failing silently.</div>
   </div>\`;
