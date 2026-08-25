@@ -138,7 +138,9 @@
     _v.set(p.x, p.y, p.z || 0);
     var pw = dr.cloudScene.localToWorld(_v.clone());
     pw.applyMatrix4(dr.camera.matrixWorldInverse);
-    return { x: s.x, y: s.y, behind: pw.z > -0.001 };
+    var r = rendRect();
+    var offscreen = s.x < -4 * r.width || s.x > 5 * r.width || s.y < -4 * r.height || s.y > 5 * r.height;
+    return { x: s.x, y: s.y, behind: pw.z > -0.1 || offscreen };
   }
   function screenToWorld(sx, sy) {
     var r = rendRect();
@@ -147,9 +149,23 @@
     var oLocal = dr.cloudScene.worldToLocal(dr.camera.position.clone());
     var pLocal = dr.cloudScene.worldToLocal(pWorld);
     var dir = pLocal.sub(oLocal).normalize();
-    var t = Math.abs(dir.z) > 1e-9 ? -oLocal.z / dir.z : 100;
+    if (Math.abs(dir.z) < 0.05) return null;   // too oblique: refuse instead of flinging marks
+    var t = -oLocal.z / dir.z;
+    if (t < 0) return null;
+    var camDist = Math.max(0.5, oLocal.length());
+    if (t > camDist * 6) t = camDist * 6;
     var hit = oLocal.add(dir.multiplyScalar(t));
     return { x: hit.x, y: hit.y, z: hit.z };
+  }
+  // |camera forward ⋅ plane normal| in cloud-local space: 1 = facing the graph plane, 0 = edge-on
+  var _fwd = new THREE.Vector3(), _o2 = new THREE.Vector3();
+  function planeAlignment() {
+    try {
+      _fwd.set(0, 0, -1).applyQuaternion(dr.camera.quaternion).add(dr.camera.position);
+      var a = dr.cloudScene.worldToLocal(_fwd.clone());
+      var b = dr.cloudScene.worldToLocal(dr.camera.position.clone());
+      return Math.min(1, Math.abs(a.sub(b).normalize().z));
+    } catch (e) { return 1; }
   }
   function nodePos(id) {
     try {
@@ -235,8 +251,8 @@
   var savedBarPos = null;
   try { savedBarPos = JSON.parse(w.localStorage.getItem("gxr-annotate.barPos") || "null"); } catch (e) {}
   var bar = el("div",
-    "position:absolute;z-index:50;display:flex;gap:4px;align-items:center;" +
-    "background:" + BRAND.dark + ";border:1px solid " + BRAND.line + ";border-radius:50px;padding:5px 10px;" +
+    "position:absolute;z-index:50;display:flex;gap:6px;align-items:center;" +
+    "background:" + BRAND.dark + ";border:1px solid " + BRAND.line + ";border-radius:50px;padding:8px 12px;" +
     "font-family:" + FONT + ";box-shadow:0 4px 18px rgba(0,0,0,0.55);pointer-events:auto;user-select:none;flex-wrap:wrap;max-width:92%;", host);
   if (savedBarPos && isFinite(savedBarPos.x) && isFinite(savedBarPos.y)) {
     bar.style.left = savedBarPos.x + "px"; bar.style.top = savedBarPos.y + "px";
@@ -285,6 +301,7 @@
       }
     });
   })();
+  var modeGlow = el("div", "position:absolute;inset:0;pointer-events:none;z-index:39;border:2px solid " + BRAND.purple + ";opacity:0;transition:opacity .2s;box-shadow:inset 0 0 22px rgba(101,183,243,.22);", host);
   var statusTip = el("div",
     "position:absolute;top:112px;left:50%;transform:translateX(-50%);z-index:50;display:none;" +
     "background:" + BRAND.input + ";color:" + BRAND.text + ";border:1px solid " + BRAND.line + ";border-radius:6px;" +
@@ -298,13 +315,21 @@
   function mkBtn(label, title, cb) {
     var b = el("button",
       "background:transparent;border:1px solid " + BRAND.line + ";color:" + BRAND.text + ";border-radius:50px;" +
-      "padding:4px 9px;font-size:12px;cursor:pointer;font-family:inherit;line-height:1.2;transition:border-color .15s,color .15s;", bar);
+      "padding:7px 11px;font-size:15px;cursor:pointer;font-family:inherit;line-height:1.2;transition:border-color .15s,color .15s;", bar);
     b.textContent = label; b.title = title;
-    b.addEventListener("mouseenter", function () { if (b.__on !== true) { b.style.borderColor = BRAND.primaryHover; b.style.color = BRAND.primaryHover; } });
-    b.addEventListener("mouseleave", function () { if (b.__on !== true) { b.style.borderColor = BRAND.line; b.style.color = BRAND.text; } });
+    var hoverTimer = null;
+    b.addEventListener("mouseenter", function () {
+      if (b.__on !== true) { b.style.borderColor = BRAND.primaryHover; b.style.color = BRAND.primaryHover; }
+      hoverTimer = setTimeout(function () { tip(title, 2600); }, 350);
+    });
+    b.addEventListener("mouseleave", function () {
+      if (b.__on !== true) { b.style.borderColor = BRAND.line; b.style.color = BRAND.text; }
+      if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+    });
     b.addEventListener("click", function (e) { e.stopPropagation(); cb(b); });
     return b;
   }
+  function sep() { el("span", "width:1px;height:24px;background:" + BRAND.line + ";margin:0 4px;flex:none;", bar); }
   function setOn(b, on) {
     b.__on = on;
     b.style.background = on ? BRAND.primaryTint : "transparent";
@@ -325,7 +350,7 @@
   });
   var colorBtns = [];
   COLORS.forEach(function (c) {
-    var b = el("button", "width:15px;height:15px;border-radius:50%;cursor:pointer;padding:0;background:" + c + ";border:2px solid transparent;", bar);
+    var b = el("button", "width:20px;height:20px;border-radius:50%;cursor:pointer;padding:0;background:" + c + ";border:3px solid transparent;flex:none;", bar);
     b.title = c;
     b.addEventListener("click", function (e) { e.stopPropagation(); setColor(c); });
     colorBtns.push([b, c]);
@@ -361,6 +386,7 @@
       fontBtn.style.fontFamily = familyFor(t.fontKey);
     });
   });
+  sep();
   var eyeBtn = mkBtn("👁", "Show/hide the annotation layer (does not delete anything)", function () {
     state.layerVisible = !state.layerVisible;
     setOn(eyeBtn, !state.layerVisible);
@@ -368,12 +394,18 @@
     tip(state.layerVisible ? "Layer visible." : "Layer hidden — annotations are safe, hit 👁 to bring them back.", 2500);
   });
   var playBtn = mkBtn("▶", "Play tour: flies through the numbered steps (▶/→ advance, ← back, Esc ends)", function () { state.tour ? tourStep(1) : startTour(); });
+  var viewBadge = el("span", "font-size:13px;color:" + BRAND.dim + ";padding:6px 10px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:1px solid transparent;border-radius:50px;", bar);
+  viewBadge.title = "Click: fly to this view's annotations";
+  viewBadge.addEventListener("mouseenter", function () { viewBadge.style.color = BRAND.purple; viewBadge.style.borderColor = BRAND.line; });
+  viewBadge.addEventListener("mouseleave", function () { viewBadge.style.color = BRAND.dim; viewBadge.style.borderColor = "transparent"; });
+  sep();
   mkBtn("↩", "Undo (Cmd/Ctrl+Z in draw mode)", undo);
   mkBtn("⌫", "Delete selected (Del)", deleteSelected);
+  sep();
   var exportBtn = mkBtn("📤", "Export annotated PNG (clipboard + preview)", doExport);
   exportBtn.style.background = BRAND.purple; exportBtn.style.borderColor = BRAND.purple; exportBtn.style.color = "#141414"; exportBtn.style.fontWeight = "700";
   var miniPill = null;
-  mkBtn("—", "Minimize: tuck the toolbar away (marks stay; 👁 hides those). Click the 🖍 pill to bring it back.", function () {
+  mkBtn("⌄", "Minimize: tuck the toolbar away (marks stay; 👁 hides those). Click the 🖍 pill to bring it back.", function () {
     bar.style.display = "none";
     if (tourHud) { tourHud.remove(); tourHud = null; }
     if (!miniPill) {
@@ -388,14 +420,13 @@
     miniPill.style.display = "block";
     tip("Toolbar minimized — the 🖍 pill (bottom-left) brings it back. 👁 on the toolbar hides the marks themselves.", 3500);
   });
-  var viewBadge = el("span", "font-size:11px;color:" + BRAND.dim + ";padding:2px 8px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:1px solid transparent;border-radius:50px;", bar);
-  viewBadge.title = "Click: fly to this view's annotations";
-  viewBadge.addEventListener("mouseenter", function () { viewBadge.style.color = BRAND.purple; viewBadge.style.borderColor = BRAND.line; });
-  viewBadge.addEventListener("mouseleave", function () { viewBadge.style.color = BRAND.dim; viewBadge.style.borderColor = "transparent"; });
+
 
   function setMode(on) {
     state.mode = on;
     setOn(modeBtn, on);
+    modeGlow.style.opacity = on ? "1" : "0";
+    renderVersion++; // re-render so marks pick up glass/interactive pointer-events
     svg.style.pointerEvents = on ? "auto" : "none"; // committed shapes keep their own pointer-events
     svg.style.cursor = on ? "crosshair" : "default";
     if (!on) closeTextInput(true);
@@ -453,21 +484,21 @@
   function evPos(e) { var r = rendRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 
   svg.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0) return;          // rotate/context gestures never touch the layer
+    if (!state.mode) return;             // draw mode OFF = the layer is glass
+    e.preventDefault();                  // suppress the compat mousedown so the app's camera gesture doesn't also start
     var s = evPos(e);
     var g = e.target.closest ? e.target.closest("g[data-id]") : null;
-    if (g) { // selecting/moving works regardless of draw mode (shapes carry pointer-events:auto)
-      e.stopPropagation();
+    if (g) {
       var id = parseInt(g.getAttribute("data-id"), 10);
       var handle = e.target.getAttribute && e.target.getAttribute("data-handle");
       state.selectedId = id;
-      pushUndo();
+      var lastW = screenToWorld(s.x, s.y);
       drag = handle ? { kind: "handle", handle: handle, id: id, moved: false }
-                    : { kind: "move", id: id, last: screenToWorld(s.x, s.y), lastScreen: s, moved: false };
+                    : { kind: "move", id: id, last: lastW, lastScreen: s, moved: false };
       svg.setPointerCapture(e.pointerId);
       return;
     }
-    if (!state.mode) return;
-    e.stopPropagation();
     state.selectedId = null;
     var tool = state.tool;
     if (tool === "callout") {
@@ -481,23 +512,28 @@
       return;
     }
     if (tool === "text") {
+      var tp = screenToWorld(s.x, s.y);
+      if (!tp) { tip("The view is too edge-on — face the graph plane to place text.", 2500); return; }
       openTextInput(s, null, function (val) {
         pushUndo();
-        anns().push({ id: state.idSeq++, viewKey: state.key, type: "text", p: screenToWorld(s.x, s.y), text: val, color: state.color });
+        anns().push({ id: state.idSeq++, viewKey: state.key, type: "text", p: tp, text: val, color: state.color });
         markDirty();
       });
       return;
     }
     if (tool === "step") {
+      var sp = screenToWorld(s.x, s.y);
+      if (!sp) { tip("The view is too edge-on — face the graph plane to place steps.", 2500); return; }
       pushUndo();
       var stepCount = anns().filter(function (a) { return a.type === "step"; }).length;
-      anns().push({ id: state.idSeq++, viewKey: state.key, type: "step", p: screenToWorld(s.x, s.y), n: stepCount + 1, color: state.color });
+      anns().push({ id: state.idSeq++, viewKey: state.key, type: "step", p: sp, n: stepCount + 1, color: state.color });
       markDirty();
       return;
     }
     if (tool === "title") { openTitleEditor(); return; }
-    pushUndo();
     var wpt = screenToWorld(s.x, s.y);
+    if (!wpt) { tip("The view is too edge-on — face the graph plane to draw.", 2500); return; }
+    pushUndo();
     var a = { id: state.idSeq++, viewKey: state.key, type: tool, p1: wpt, p2: { x: wpt.x, y: wpt.y, z: wpt.z }, color: state.color, width: 3 };
     if (tool === "cluster") { a.type = "cluster"; a.startScreen = s; a.curScreen = s; }
     anns().push(a);
@@ -511,8 +547,9 @@
     var a = findAnn(drag.id !== undefined ? drag.id : -1);
     if (drag.kind === "draw" && a) {
       if (a.type === "cluster") a.curScreen = s;
-      else a.p2 = screenToWorld(s.x, s.y);
+      else { var np2 = screenToWorld(s.x, s.y); if (np2) a.p2 = np2; }
     } else if (drag.kind === "move" && a) {
+      if (!drag.undoPushed) { pushUndo(); drag.undoPushed = true; }
       drag.moved = true;
       if (a.type === "callout") { // dragging a callout moves its label offset (screen px)
         a.off = { x: a.off.x + (s.x - drag.lastScreen.x), y: a.off.y + (s.y - drag.lastScreen.y) };
@@ -521,14 +558,17 @@
         // node-derived / screen-fixed: no positional move
       } else {
         var cur = screenToWorld(s.x, s.y);
+        if (!cur || !drag.last) { return; }
         ["p", "p1", "p2"].forEach(function (k) {
           if (a[k] && a[k].nodeId === undefined) { a[k].x += cur.x - drag.last.x; a[k].y += cur.y - drag.last.y; a[k].z = (a[k].z || 0) + ((cur.z || 0) - (drag.last.z || 0)); }
         });
         drag.last = cur;
       }
     } else if (drag.kind === "handle" && a) {
+      if (!drag.undoPushed) { pushUndo(); drag.undoPushed = true; }
       drag.moved = true;
       var cw = screenToWorld(s.x, s.y);
+      if (!cw) return;
       if (drag.handle === "p1") a.p1 = cw;
       else if (drag.handle === "p2") a.p2 = cw;
     }
@@ -554,10 +594,7 @@
         if (Math.abs(q1.x - q2.x) < 6 && Math.abs(q1.y - q2.y) < 6) removeAnn(a.id, true);
       }
     }
-    if ((drag.kind === "move" || drag.kind === "handle") && !drag.moved) {
-      var st = state.undoStacks[state.key]; if (st) st.pop(); // click-select only
-      // double-click editing handled via dblclick
-    } else if (drag.kind === "handle" && a && a.type === "arrow" && drag.handle === "p2") {
+    if (drag.kind === "handle" && a && a.type === "arrow" && drag.handle === "p2" && drag.moved) {
       var sp = worldToScreen(pt(a.p2) || a.p2);
       var nid2 = nearestNode(sp.x, sp.y, 26);
       if (nid2) a.p2 = { nodeId: nid2 };
@@ -566,7 +603,19 @@
     markDirty();
   });
 
+  function cancelDrag() {
+    if (!drag) return;
+    if (drag.kind === "draw") {
+      removeAnn(drag.id, true); // never leave a half-drawn mark (e.g. an orphaned cluster marquee)
+      renderVersion++;
+    }
+    drag = null;
+  }
+  svg.addEventListener("pointercancel", cancelDrag);
+  svg.addEventListener("lostpointercapture", function () { if (drag && drag.kind === "draw") cancelDrag(); });
+
   svg.addEventListener("dblclick", function (e) {
+    if (e.button !== 0 || !state.mode) return; // editing lives in draw mode
     var g = e.target.closest ? e.target.closest("g[data-id]") : null;
     if (!g) return;
     var a = findAnn(parseInt(g.getAttribute("data-id"), 10));
@@ -614,7 +663,7 @@
 
   // ---------- text inputs ----------
   var textInput = null;
-  function openTextInput(s, existing, commit) {
+  function openTextInput(s, existing, commit, commitOnBlur) {
     closeTextInput(false);
     var ta = el("textarea",
       "position:absolute;z-index:60;min-width:180px;min-height:34px;resize:both;background:rgba(38,38,38,0.96);color:#fff;" +
@@ -629,7 +678,7 @@
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); closeTextInput(true); }
       if (e.key === "Escape") closeTextInput(false);
     });
-    ta.addEventListener("blur", function () { closeTextInput(true); });
+    ta.addEventListener("blur", function () { closeTextInput(!!commitOnBlur || existing !== null && existing !== undefined && existing !== ""); });
   }
   function closeTextInput(doCommit) {
     if (!textInput) return;
@@ -660,7 +709,7 @@
     scheduleSave();
   }
   function hashFrame() {
-    var h = renderVersion + "|" + state.selectedId + "|" + (state.tour ? state.tour.i : "-") + "|";
+    var h = renderVersion + "|" + state.selectedId + "|" + (state.tour ? state.tour.i : "-") + "|" + svg.style.opacity + "|";
     var e = dr.camera.matrixWorld.elements, c = dr.cloudScene.matrixWorld.elements;
     for (var i = 0; i < 16; i++) h += e[i].toFixed(5) + "," + c[i].toFixed(5) + ";";
     // node-derived anchors need per-frame refresh while layouts run — sample one anchor
@@ -691,8 +740,8 @@
     var tourDim = !!state.tour;
     A.forEach(function (a) {
       var g = svgEl("g", { "data-id": a.id }, svg);
-      g.style.pointerEvents = "auto";
-      g.style.cursor = "move";
+      g.style.pointerEvents = state.mode ? "auto" : "none";
+      g.style.cursor = state.mode ? "move" : "default";
       var dimmed = tourDim && !(a.type === "step" && state.tour.order[state.tour.i] === a.id) && a.type !== "title";
       if (dimmed) g.setAttribute("opacity", "0.18");
       var sel = a.id === state.selectedId && !tourDim;
@@ -804,9 +853,18 @@
     }
   }
   var loopBanner = null;
+  var obliqueTipShown = false;
   function loop() {
     if (state.destroyed) return;
     try {
+      var align = planeAlignment();
+      var fade = align < 0.35 ? Math.max(0.15, align / 0.35) : 1;
+      if (svg.style.opacity !== String(fade)) svg.style.opacity = String(fade);
+      if (align < 0.35 && !obliqueTipShown) {
+        obliqueTipShown = true;
+        tip("Annotations are 2D — they fade when the view goes edge-on. Face the graph plane to see and edit them.", 4000);
+      }
+      if (align >= 0.5) obliqueTipShown = false;
       var h = hashFrame();
       if (h !== frameHash) { frameHash = h; render(); }
       state.loopErrors = 0;
@@ -1066,7 +1124,7 @@
 
   // ---------- public api (used by the showcase grovebook) ----------
   var api = {
-    version: "0.5.5",
+    version: "0.6.0",
     state: state,
     addAnnotation: function (a) {
       a.id = state.idSeq++;
@@ -1095,7 +1153,7 @@
       unpatchHistory(onNav);
       document.removeEventListener("keydown", onKeydown);
       document.removeEventListener("visibilitychange", onVisChange);
-      layer.remove(); bar.remove(); statusTip.remove();
+      layer.remove(); bar.remove(); statusTip.remove(); modeGlow.remove();
       if (tourHud) tourHud.remove();
       if (miniPill) miniPill.remove();
       if (exportPanel) exportPanel.remove();
