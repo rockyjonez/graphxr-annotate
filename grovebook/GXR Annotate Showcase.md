@@ -42,6 +42,15 @@
   };
   var COLORS = ["#E84749", "#65B7F3", "#D89614", "#49AA19", "#13A8A8", "#FFFFFF"];
   var FONT = "'Lato', 'Helvetica', sans-serif";
+  var FONT_CHOICES = [
+    { key: "sans", label: "Aa", family: "'Lato', 'Helvetica', sans-serif" },
+    { key: "serif", label: "Aa", family: "Georgia, 'Times New Roman', serif" },
+    { key: "mono", label: "Aa", family: "'Menlo', 'Consolas', monospace" }
+  ];
+  function familyFor(key) {
+    for (var i = 0; i < FONT_CHOICES.length; i++) if (FONT_CHOICES[i].key === key) return FONT_CHOICES[i].family;
+    return FONT;
+  }
   var SVGNS = "http://www.w3.org/2000/svg";
   var SIDECAR = "/annotations.sidecar.json";
   var SIDECAR_BAK = "/annotations.sidecar.bak";
@@ -103,6 +112,7 @@
   // ---------- state ----------
   var state = {
     mode: false, tool: "callout", color: COLORS[0],
+    sizeMul: 1, fontKey: "sans",
     sets: {},            // key -> {savedAt, clientId, anns:[]}
     dirtyKeys: {},       // key -> true (unsaved local changes)
     key: null,
@@ -319,13 +329,36 @@
     b.addEventListener("click", function (e) { e.stopPropagation(); setColor(c); });
     colorBtns.push([b, c]);
   });
+  function applyTextStyle(fn) {
+    var a = state.selectedId && findAnn(state.selectedId);
+    if (a && (a.type === "text" || a.type === "callout" || a.type === "title" || a.type === "step")) {
+      pushUndo(); fn(a); markDirty();
+    } else {
+      fn(state); // set defaults for new marks
+      tip("Text style set for new marks (select an existing text/callout/title first to restyle it).", 2600);
+    }
+  }
+  mkBtn("A−", "Smaller text (applies to selected mark, or sets the default)", function () {
+    applyTextStyle(function (t) { t.sizeMul = Math.max(0.5, (t.sizeMul || 1) / 1.25); });
+  });
+  mkBtn("A+", "Bigger text (applies to selected mark, or sets the default)", function () {
+    applyTextStyle(function (t) { t.sizeMul = Math.min(3.5, (t.sizeMul || 1) * 1.25); });
+  });
+  var fontBtn = mkBtn("Aa", "Cycle font: sans → serif → mono (selected mark, or default)", function () {
+    applyTextStyle(function (t) {
+      var cur = t.fontKey || "sans";
+      var idx = (FONT_CHOICES.findIndex(function (f) { return f.key === cur; }) + 1) % FONT_CHOICES.length;
+      t.fontKey = FONT_CHOICES[idx].key;
+      fontBtn.style.fontFamily = familyFor(t.fontKey);
+    });
+  });
   var eyeBtn = mkBtn("👁", "Show/hide the annotation layer (does not delete anything)", function () {
     state.layerVisible = !state.layerVisible;
     setOn(eyeBtn, !state.layerVisible);
     svg.style.display = state.layerVisible ? "" : "none";
     tip(state.layerVisible ? "Layer visible." : "Layer hidden — annotations are safe, hit 👁 to bring them back.", 2500);
   });
-  var playBtn = mkBtn("▶", "Play tour: fly through numbered steps (→/← advance, Esc exits)", function () { startTour(); });
+  var playBtn = mkBtn("▶", "Play tour: flies through the numbered steps (▶/→ advance, ← back, Esc ends)", function () { state.tour ? tourStep(1) : startTour(); });
   mkBtn("↩", "Undo (Cmd/Ctrl+Z in draw mode)", undo);
   mkBtn("⌫", "Delete selected (Del)", deleteSelected);
   var exportBtn = mkBtn("📤", "Export annotated PNG (clipboard + preview)", doExport);
@@ -517,6 +550,9 @@
     if (a.type === "text" || a.type === "callout") {
       var s = evPos(e);
       openTextInput(s, a.text, function (val) { pushUndo(); a.text = val; markDirty(); });
+    } else if (a.type === "step") {
+      var s2 = evPos(e);
+      openTextInput(s2, a.label || "", function (val) { pushUndo(); a.label = val; markDirty(); tip("Step caption saved — it shows in the tour panel.", 2500); });
     } else if (a.type === "title") openTitleEditor();
   });
   function removeAnn(id, dropUndo) {
@@ -686,7 +722,7 @@
         if (!TP) return;
         var ts = worldToScreen(TP);
         if (ts.behind) return;
-        drawLabel(g, ts.x, ts.y, a.text, a.color, fpx, false);
+        drawLabel(g, ts.x, ts.y, a.text, a.color, Math.max(12, fpx) * (a.sizeMul || 1), false, familyFor(a.fontKey || state.fontKey));
       } else if (a.type === "callout") {
         var np = nodePos(a.nodeId);
         orphan = !np;
@@ -701,13 +737,13 @@
         var ex = bs.x - dx / dl * 14, ey = bs.y - dy / dl * 14;
         svgEl("line", { x1: lx, y1: ly + 4, x2: ex, y2: ey, stroke: a.color, "stroke-width": 2, "stroke-dasharray": orphan ? "5 5" : "none" }, g);
         svgEl("circle", { cx: ex, cy: ey, r: 3, fill: a.color }, g);
-        drawLabel(g, lx, ly, a.text, a.color, Math.max(13, fpx * 0.8), true);
+        drawLabel(g, lx, ly, a.text, a.color, Math.max(13, fpx * 0.8) * (a.sizeMul || 1), true, familyFor(a.fontKey || state.fontKey));
       } else if (a.type === "step") {
         var SP = pt(a.p);
         if (!SP) return;
         var sp = worldToScreen(SP);
         if (sp.behind) return;
-        var rr = Math.max(12, fpx * 0.8);
+        var rr = Math.max(12, fpx * 0.8) * (a.sizeMul || 1);
         var active = state.tour && state.tour.order[state.tour.i] === a.id;
         if (active) svgEl("circle", { cx: sp.x, cy: sp.y, r: rr + 8, fill: "none", stroke: a.color, "stroke-width": 2, opacity: 0.6 }, g);
         svgEl("circle", { cx: sp.x, cy: sp.y, r: rr, fill: a.color, stroke: "#FFF", "stroke-width": 2.5 }, g);
@@ -715,7 +751,7 @@
         st.textContent = String(a.n);
       } else if (a.type === "title") {
         var rw = rendRect().width;
-        var tg = svgEl("text", { x: rw / 2, y: 148, fill: "#FFF", "font-size": 20, "font-family": FONT, "font-weight": "700", "text-anchor": "middle" }, g);
+        var tg = svgEl("text", { x: rw / 2, y: 148, fill: "#FFF", "font-size": 20 * (a.sizeMul || 1), "font-family": familyFor(a.fontKey || state.fontKey), "font-weight": "700", "text-anchor": "middle" }, g);
         tg.textContent = a.text;
         var bb2 = tg.getBBox();
         var bgr = svgEl("rect", { x: bb2.x - 14, y: bb2.y - 7, width: bb2.width + 28, height: bb2.height + 14, rx: 8, fill: "rgba(20,20,20,0.88)", stroke: a.color, "stroke-width": 1.5 }, g);
@@ -729,8 +765,8 @@
       }
     });
   }
-  function drawLabel(g, x, y, text, color, size, pill) {
-    var t = svgEl("text", { x: x, y: y, fill: pill ? "#FFF" : color, "font-size": size, "font-family": FONT, "font-weight": "600", "paint-order": "stroke", stroke: pill ? "none" : "rgba(20,20,20,0.8)", "stroke-width": pill ? 0 : Math.max(2, size / 8) }, g);
+  function drawLabel(g, x, y, text, color, size, pill, family) {
+    var t = svgEl("text", { x: x, y: y, fill: pill ? "#FFF" : color, "font-size": size, "font-family": family || FONT, "font-weight": "600", "paint-order": "stroke", stroke: pill ? "none" : "rgba(20,20,20,0.8)", "stroke-width": pill ? 0 : Math.max(2, size / 8) }, g);
     String(text).split("\n").forEach(function (line, i) {
       svgEl("tspan", { x: x, dy: i === 0 ? 0 : size * 1.25 }, t).textContent = line;
     });
@@ -759,6 +795,12 @@
     requestAnimationFrame(loop);
   }
 
+  // camera fly helper: gxr.flyToPosition requires a THREE.Vector3 (plain {x,y,z} throws)
+  function flyTo(p) {
+    try { var r = gxr.flyToPosition(new THREE.Vector3(p.x, p.y, p.z || 0)); if (r && r.catch) r.catch(function () {}); return; } catch (e) {}
+    try { var r2 = gxr.centerTo({ x: p.x, y: p.y, z: p.z || 0 }); if (r2 && r2.catch) r2.catch(function () {}); } catch (e2) {}
+  }
+
   // click the view badge → bring this view's annotations back into view
   function flyToAnnotations() {
     var A = anns();
@@ -771,17 +813,33 @@
     if (!pts.length) { try { gxr.flyOut(); } catch (e) {} tip("No positioned annotations in this view.", 2000); return; }
     var c = { x: 0, y: 0, z: 0 };
     pts.forEach(function (p) { c.x += p.x / pts.length; c.y += p.y / pts.length; c.z += (p.z || 0) / pts.length; });
-    try { gxr.flyToPosition(c); tip("Flying to this view's annotations…", 2000); }
-    catch (e) { try { gxr.flyOut(); } catch (e2) {} }
+    flyTo(c);
+    tip("Flying to this view's annotations…", 2000);
   }
 
   // ---------- tour ----------
+  var tourHud = null;
+  function showTourHud(i, total, label) {
+    if (!tourHud) {
+      tourHud = el("div",
+        "position:absolute;left:50%;transform:translateX(-50%);bottom:158px;z-index:52;background:" + BRAND.dark + ";" +
+        "border:1px solid " + BRAND.purple + ";border-radius:6px;padding:10px 18px;font-family:" + FONT + ";" +
+        "color:" + BRAND.text + ";font-size:13px;max-width:520px;text-align:center;pointer-events:none;box-shadow:0 4px 18px rgba(0,0,0,.55);", host);
+    }
+    tourHud.innerHTML = "";
+    var head = el("div", "color:" + BRAND.purple + ";font-weight:700;font-size:14px;margin-bottom:2px;", tourHud);
+    head.textContent = "Tour · step " + (i + 1) + " of " + total;
+    if (label) { var lb = el("div", "color:" + BRAND.bright + ";font-size:14px;margin:3px 0;", tourHud); lb.textContent = label; }
+    var hint = el("div", "color:" + BRAND.dim + ";font-size:11.5px;margin-top:3px;", tourHud);
+    hint.textContent = "▶ or → = next step · ← = back · Esc = end tour";
+  }
   function startTour() {
     var steps = anns().filter(function (a) { return a.type === "step"; }).sort(function (a, b) { return a.n - b.n; });
     if (!steps.length) { tip("No numbered steps in this view — drop some with ① first.", 3000); return; }
     state.tour = { order: steps.map(function (s) { return s.id; }), i: -1 };
     setMode(false);
     setOn(playBtn, true);
+    playBtn.title = "Next step (Esc ends the tour)";
     tourStep(1);
   }
   function tourStep(dirn) {
@@ -793,14 +851,14 @@
     renderVersion++;
     var a = findAnn(state.tour.order[ni]);
     var P = a && pt(a.p);
-    if (P && gxr.flyToPosition) {
-      try { gxr.flyToPosition({ x: P.x, y: P.y, z: P.z || 0 }); } catch (e) {}
-    }
-    tip("Step " + (ni + 1) + " / " + state.tour.order.length + " — →/← to move, Esc to exit.", 0);
+    if (P) flyTo(P);
+    showTourHud(ni, state.tour.order.length, a && a.label);
   }
   function endTour() {
     state.tour = null;
     setOn(playBtn, false);
+    playBtn.title = "Play tour: flies through the numbered steps (▶/→ advance, ← back, Esc ends)";
+    if (tourHud) { tourHud.remove(); tourHud = null; }
     renderVersion++;
     tip("Tour ended.", 1500);
   }
@@ -981,7 +1039,7 @@
 
   // ---------- public api (used by the showcase grovebook) ----------
   var api = {
-    version: "0.5.3",
+    version: "0.5.4",
     state: state,
     addAnnotation: function (a) {
       a.id = state.idSeq++;
@@ -1011,6 +1069,7 @@
       document.removeEventListener("keydown", onKeydown);
       document.removeEventListener("visibilitychange", onVisChange);
       layer.remove(); bar.remove(); statusTip.remove();
+      if (tourHud) tourHud.remove();
       if (exportPanel) exportPanel.remove();
       if (loopBanner) loopBanner.remove();
       delete w.__GXR_ANNOTATE__;
@@ -1143,9 +1202,14 @@
     if (ha && ha.position) {
       A.addAnnotation({ type: "arrow", p1: { x: ha.position.x - 0.9, y: ha.position.y - 0.7, z: 0 }, p2: { nodeId: "hub-a" }, color: "#13A8A8", width: 3 });
     }
+    const stepCaptions = {
+      "hub-a": "Step 1 — Suppliers: goods enter here and funnel toward the shell layer.",
+      "hub-b": "Step 2 — The shell cluster: 20 companies, one operator, circled in amber.",
+      "hub-c": "Step 3 — Retailers: both supply chains land here. That's the story."
+    };
     ["hub-a", "hub-b", "hub-c"].forEach(id => {
       const n = gxr.getNode(id);
-      if (n && n.position) A.addAnnotation({ type: "step", p: { x: n.position.x, y: n.position.y + 0.25, z: 0 }, color: "#E84749" });
+      if (n && n.position) A.addAnnotation({ type: "step", p: { x: n.position.x, y: n.position.y + 0.25, z: 0 }, color: "#E84749", label: stepCaptions[id] });
     });
     await A.save();
     console.log("[showcase] annotations ready on view 'Showcase — annotated'");

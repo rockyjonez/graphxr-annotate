@@ -130,9 +130,14 @@ cell("showcase-demo-annotations", "false", `{
     if (ha && ha.position) {
       A.addAnnotation({ type: "arrow", p1: { x: ha.position.x - 0.9, y: ha.position.y - 0.7, z: 0 }, p2: { nodeId: "hub-a" }, color: "#13A8A8", width: 3 });
     }
+    const stepCaptions = {
+      "hub-a": "Step 1 — Suppliers: goods enter here and funnel toward the shell layer.",
+      "hub-b": "Step 2 — The shell cluster: 20 companies, one operator, circled in amber.",
+      "hub-c": "Step 3 — Retailers: both supply chains land here. That's the story."
+    };
     ["hub-a", "hub-b", "hub-c"].forEach(id => {
       const n = gxr.getNode(id);
-      if (n && n.position) A.addAnnotation({ type: "step", p: { x: n.position.x, y: n.position.y + 0.25, z: 0 }, color: "#E84749" });
+      if (n && n.position) A.addAnnotation({ type: "step", p: { x: n.position.x, y: n.position.y + 0.25, z: 0 }, color: "#E84749", label: stepCaptions[id] });
     });
     await A.save();
     console.log("[showcase] annotations ready on view 'Showcase — annotated'");
