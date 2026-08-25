@@ -103,16 +103,19 @@ cell("showcase-demo-annotations", "false", `{
   return await Button("🖍 ③ Build sample annotations (reuses the demo view)", async () => {
     const A = window.parent.__GXR_ANNOTATE__;
     if (!A) { console.error("layer not installed — run cell ① first"); return; }
-    if (!gxr.getNode("hub-b")) {
-      console.log("[showcase] canvas empty — seeding first");
-      await seedShowcaseGraph();
-      await new Promise(r => setTimeout(r, 1000));
-    }
+    // load the demo view FIRST if it exists (it carries the graph); loading a view
+    // MERGES edges with whatever is on canvas, so never seed before loading
     const existing = (await gxr.views.list()).find(v => v.name === "Showcase — annotated");
     if (existing) {
       await gxr.views.load({ id: existing._id || existing.id });
       await new Promise(r => setTimeout(r, 4000));
-    } else {
+    }
+    if (!gxr.getNode("hub-b")) {
+      console.log("[showcase] no demo graph — seeding");
+      await seedShowcaseGraph();
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    if (!existing) {
       await gxr.views.saveAs({ name: "Showcase — annotated" });
       await new Promise(r => setTimeout(r, 1500));
     }

@@ -231,30 +231,44 @@
   if (savedBarPos && isFinite(savedBarPos.x) && isFinite(savedBarPos.y)) {
     bar.style.left = savedBarPos.x + "px"; bar.style.top = savedBarPos.y + "px";
   } else {
-    bar.style.left = "50%"; bar.style.transform = "translateX(-50%)"; bar.style.top = "64px";
+    // bottom-center: clear of the app's search bar (top-left), header pill
+    // (top-center), legend (right), minimap (bottom-right) and icon row (very bottom)
+    bar.style.left = "50%"; bar.style.transform = "translateX(-50%)"; bar.style.bottom = "104px";
   }
   var grip = el("span", "cursor:grab;color:" + BRAND.dim + ";padding:0 4px;font-size:13px;letter-spacing:-1px;", bar);
   grip.textContent = "⠿";
-  grip.title = "Drag to move the toolbar";
+  grip.title = "Drag to move the toolbar (any empty spot on the bar works too)";
   (function () {
     var dragging = null;
-    grip.addEventListener("pointerdown", function (e) {
-      e.stopPropagation();
+    function start(e) {
       var br = bar.getBoundingClientRect(), hr = host.getBoundingClientRect();
       dragging = { dx: e.clientX - br.left, dy: e.clientY - br.top, hr: hr };
-      grip.setPointerCapture(e.pointerId);
+      bar.setPointerCapture(e.pointerId);
+      bar.style.cursor = "grabbing";
+    }
+    bar.addEventListener("pointerdown", function (e) {
+      // drag from the grip or any non-button area of the bar
+      if (e.target === grip || e.target === bar || e.target === viewBadge) { e.stopPropagation(); start(e); }
     });
-    grip.addEventListener("pointermove", function (e) {
+    bar.addEventListener("pointermove", function (e) {
       if (!dragging) return;
       var x = Math.max(4, Math.min(dragging.hr.width - 60, e.clientX - dragging.hr.left - dragging.dx));
       var y = Math.max(4, Math.min(dragging.hr.height - 40, e.clientY - dragging.hr.top - dragging.dy));
       bar.style.transform = "none";
+      bar.style.bottom = "auto";
       bar.style.left = x + "px"; bar.style.top = y + "px";
+      dragging.moved = true;
     });
-    grip.addEventListener("pointerup", function () {
+    bar.addEventListener("pointerup", function (e) {
       if (!dragging) return;
+      var moved = dragging.moved;
       dragging = null;
-      try { w.localStorage.setItem("gxr-annotate.barPos", JSON.stringify({ x: parseFloat(bar.style.left), y: parseFloat(bar.style.top) })); } catch (e) {}
+      bar.style.cursor = "";
+      if (moved) {
+        try { w.localStorage.setItem("gxr-annotate.barPos", JSON.stringify({ x: parseFloat(bar.style.left), y: parseFloat(bar.style.top) })); } catch (err) {}
+      } else if (e.target === viewBadge) {
+        flyToAnnotations();
+      }
     });
   })();
   var statusTip = el("div",
@@ -314,7 +328,10 @@
   var exportBtn = mkBtn("📤", "Export annotated PNG (clipboard + preview)", doExport);
   exportBtn.style.background = BRAND.purple; exportBtn.style.borderColor = BRAND.purple; exportBtn.style.color = "#141414"; exportBtn.style.fontWeight = "700";
   mkBtn("—", "Remove the layer from this session (annotations stay saved)", function () { api.destroy(); });
-  var viewBadge = el("span", "font-size:11px;color:" + BRAND.dim + ";padding:0 4px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", bar);
+  var viewBadge = el("span", "font-size:11px;color:" + BRAND.dim + ";padding:2px 8px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:1px solid transparent;border-radius:50px;", bar);
+  viewBadge.title = "Click: fly to this view's annotations";
+  viewBadge.addEventListener("mouseenter", function () { viewBadge.style.color = BRAND.purple; viewBadge.style.borderColor = BRAND.line; });
+  viewBadge.addEventListener("mouseleave", function () { viewBadge.style.color = BRAND.dim; viewBadge.style.borderColor = "transparent"; });
 
   function setMode(on) {
     state.mode = on;
@@ -739,6 +756,22 @@
     requestAnimationFrame(loop);
   }
 
+  // click the view badge → bring this view's annotations back into view
+  function flyToAnnotations() {
+    var A = anns();
+    var pts = [];
+    A.forEach(function (a) {
+      ["p", "p1", "p2"].forEach(function (k) { var P = a[k] && pt(a[k]); if (P) pts.push(P); });
+      if (a.nodeIds) a.nodeIds.forEach(function (id) { var P = nodePos(id); if (P) pts.push(P); });
+      if (a.nodeId !== undefined) { var P2 = nodePos(a.nodeId); if (P2) pts.push(P2); }
+    });
+    if (!pts.length) { try { gxr.flyOut(); } catch (e) {} tip("No positioned annotations in this view.", 2000); return; }
+    var c = { x: 0, y: 0, z: 0 };
+    pts.forEach(function (p) { c.x += p.x / pts.length; c.y += p.y / pts.length; c.z += (p.z || 0) / pts.length; });
+    try { gxr.flyToPosition(c); tip("Flying to this view's annotations…", 2000); }
+    catch (e) { try { gxr.flyOut(); } catch (e2) {} }
+  }
+
   // ---------- tour ----------
   function startTour() {
     var steps = anns().filter(function (a) { return a.type === "step"; }).sort(function (a, b) { return a.n - b.n; });
@@ -945,7 +978,7 @@
 
   // ---------- public api (used by the showcase grovebook) ----------
   var api = {
-    version: "0.5.1",
+    version: "0.5.2",
     state: state,
     addAnnotation: function (a) {
       a.id = state.idSeq++;
