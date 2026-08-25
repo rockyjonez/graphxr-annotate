@@ -248,7 +248,11 @@
     }
     bar.addEventListener("pointerdown", function (e) {
       // drag from the grip or any non-button area of the bar
-      if (e.target === grip || e.target === bar || e.target === viewBadge) { e.stopPropagation(); start(e); }
+      if (e.target === grip || e.target === bar || e.target === viewBadge) {
+        e.stopPropagation();
+        start(e);
+        dragging.startedOnBadge = e.target === viewBadge; // pointer capture retargets later events to `bar`
+      }
     });
     bar.addEventListener("pointermove", function (e) {
       if (!dragging) return;
@@ -261,12 +265,12 @@
     });
     bar.addEventListener("pointerup", function (e) {
       if (!dragging) return;
-      var moved = dragging.moved;
+      var moved = dragging.moved, wasBadge = dragging.startedOnBadge;
       dragging = null;
       bar.style.cursor = "";
       if (moved) {
         try { w.localStorage.setItem("gxr-annotate.barPos", JSON.stringify({ x: parseFloat(bar.style.left), y: parseFloat(bar.style.top) })); } catch (err) {}
-      } else if (e.target === viewBadge) {
+      } else if (wasBadge) {
         flyToAnnotations();
       }
     });
@@ -978,7 +982,7 @@
 
   // ---------- public api (used by the showcase grovebook) ----------
   var api = {
-    version: "0.5.2",
+    version: "0.5.3",
     state: state,
     addAnnotation: function (a) {
       a.id = state.idSeq++;
